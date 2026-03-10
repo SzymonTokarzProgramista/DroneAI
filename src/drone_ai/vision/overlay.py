@@ -5,7 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from drone_ai.vision.types import RecognizedFace
+from drone_ai.vision.schemas import RecognizedFace
 
 
 class FaceOverlayRenderer:

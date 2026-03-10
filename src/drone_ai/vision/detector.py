@@ -8,7 +8,7 @@ from typing import Any
 
 import cv2
 
-from drone_ai.vision.types import BoundingBox, FaceDetection
+from drone_ai.vision.schemas import BoundingBox, FaceDetection
 
 try:
     import mediapipe as mp

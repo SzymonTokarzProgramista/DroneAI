@@ -13,9 +13,10 @@ class AppConfig:
     embedder_model_path: Path
     detector_model_path: Path
     preview_window_name: str = "DroneAI Tello Front Camera"
-    recognition_threshold: float = 0.45
-    min_detection_confidence: float = 0.8
-    detection_nms_threshold: float = 0.35
+    recognition_threshold: float = 0.46
+    recognition_margin_threshold: float = 0.03
+    min_detection_confidence: float = 0.9
+    detection_nms_threshold: float = 0.25
 
     @classmethod
     def from_env(cls, root_dir: Path) -> "AppConfig":
@@ -42,12 +43,15 @@ class AppConfig:
                 "DRONE_AI_PREVIEW_WINDOW", "DroneAI Tello Front Camera"
             ),
             recognition_threshold=float(
-                os.environ.get("DRONE_AI_RECOGNITION_THRESHOLD", "0.45")
+                os.environ.get("DRONE_AI_RECOGNITION_THRESHOLD", "0.46")
+            ),
+            recognition_margin_threshold=float(
+                os.environ.get("DRONE_AI_RECOGNITION_MARGIN_THRESHOLD", "0.03")
             ),
             min_detection_confidence=float(
-                os.environ.get("DRONE_AI_MIN_DETECTION_CONFIDENCE", "0.8")
+                os.environ.get("DRONE_AI_MIN_DETECTION_CONFIDENCE", "0.9")
             ),
             detection_nms_threshold=float(
-                os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.35")
+                os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.25")
             ),
         )

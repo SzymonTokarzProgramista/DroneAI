@@ -398,6 +398,7 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opencv-python" },
+    { name = "pillow" },
     { name = "uvicorn" },
 ]
 
@@ -408,6 +409,7 @@ requires-dist = [
     { name = "mediapipe", specifier = ">=0.10.14" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-python", specifier = ">=4.9" },
+    { name = "pillow", specifier = ">=10.3" },
     { name = "uvicorn", specifier = ">=0.29" },
 ]
 

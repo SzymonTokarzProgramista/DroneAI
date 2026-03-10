@@ -7,7 +7,7 @@ import numpy as np
 from drone_ai.vision.detector import MediaPipeFaceDetector
 from drone_ai.vision.overlay import FaceOverlayRenderer
 from drone_ai.vision.recognizer import FaceRecognitionService
-from drone_ai.vision.types import FaceDetection, FrameAnalysis
+from drone_ai.vision.schemas import FaceDetection, FrameAnalysis
 
 
 class FacePipeline:

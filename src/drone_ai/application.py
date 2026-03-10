@@ -5,9 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import asdict
-from typing import Any
-
-import cv2
+from typing import TYPE_CHECKING, Any
 
 from drone_ai.config import AppConfig
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository
@@ -17,7 +15,10 @@ from drone_ai.vision.embedder import SFaceEmbedder
 from drone_ai.vision.overlay import FaceOverlayRenderer
 from drone_ai.vision.pipeline import FacePipeline
 from drone_ai.vision.recognizer import FaceRecognitionService
-from drone_ai.vision.types import ApiStatus, FaceDetection, FrameAnalysis
+from drone_ai.vision.schemas import ApiStatus, FaceDetection, FrameAnalysis, RecognizedFace
+
+if TYPE_CHECKING:
+    from drone_ai.gui import DroneAIGUI
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -45,6 +46,7 @@ class DroneApplication:
             self._repository,
             SFaceEmbedder(config.embedder_model_path),
             similarity_threshold=config.recognition_threshold,
+            margin_threshold=config.recognition_margin_threshold,
         )
         self._pipeline = FacePipeline(
             MediaPipeFaceDetector(
@@ -57,12 +59,14 @@ class DroneApplication:
         )
         self._latest_analysis: FrameAnalysis | None = None
         self._latest_detections: list[FaceDetection] = []
+        self._latest_frame_id = 0
         self._frame_lock = threading.RLock()
         self._stop_event = threading.Event()
         self._processing_thread: threading.Thread | None = None
         self._api_server: Any | None = None
         self._api_thread: threading.Thread | None = None
         self._api_url: str | None = None
+        self._gui: DroneAIGUI | None = None
 
     def connect(self, *, enable_stream: bool = True) -> TelloStatus:
         status = self._controller.connect(enable_stream=enable_stream)
@@ -151,29 +155,89 @@ class DroneApplication:
         selected_detection = FacePipeline.choose_face(detections)
         return self._recognizer.register_face(name, frame, selected_detection)
 
+    def register_face_series(
+        self,
+        name: str,
+        *,
+        sample_count: int = 5,
+        timeout_seconds: float = 6.0,
+    ) -> IdentitySummary:
+        deadline = time.time() + timeout_seconds
+        last_frame_id = -1
+        captured = 0
+        latest_summary: IdentitySummary | None = None
+
+        while captured < sample_count and time.time() < deadline:
+            with self._frame_lock:
+                analysis = self._latest_analysis
+                detections = list(self._latest_detections)
+                frame_id = self._latest_frame_id
+
+                if analysis is not None:
+                    frame = analysis.raw_frame.copy()
+                else:
+                    frame = None
+
+            if analysis is None or frame is None or not detections or frame_id == last_frame_id:
+                time.sleep(0.08)
+                continue
+
+            detection = FacePipeline.choose_face(detections)
+            if detection.bounding_box.area < 10_000:
+                last_frame_id = frame_id
+                time.sleep(0.08)
+                continue
+
+            latest_summary = self._recognizer.register_face(name, frame, detection)
+            captured += 1
+            last_frame_id = frame_id
+            time.sleep(0.12)
+
+        if latest_summary is None:
+            raise RuntimeError("Failed to capture a usable face series from the current preview.")
+
+        if captured < sample_count:
+            raise RuntimeError(
+                f"Captured only {captured}/{sample_count} usable samples. Move closer and keep one face visible."
+            )
+
+        return latest_summary
+
     def latest_annotated_frame(self) -> Any:
         with self._frame_lock:
             if self._latest_analysis is None:
                 return None
             return self._latest_analysis.annotated_frame.copy()
 
+    def latest_faces(self) -> list[RecognizedFace]:
+        with self._frame_lock:
+            if self._latest_analysis is None:
+                return []
+            return list(self._latest_analysis.faces)
+
     def preview_loop(self) -> int:
-        print("Live preview started. Press 'q' in the preview window to close.")
+        try:
+            from drone_ai.gui import DroneAIGUI
+        except ImportError as exc:
+            raise RuntimeError(
+                "Tk GUI is not available. Install the system tkinter package and rerun the app."
+            ) from exc
 
-        while True:
-            frame = self.latest_annotated_frame()
-            if frame is not None:
-                cv2.imshow(self._config.preview_window_name, frame)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                break
-            time.sleep(0.01)
-
-        cv2.destroyAllWindows()
-        return 0
+        self._gui = DroneAIGUI(
+            title=self._config.preview_window_name,
+            get_frame=self.latest_annotated_frame,
+            get_faces=self.latest_faces,
+            get_status=self.status,
+            list_identities=self.list_identities,
+            register_face=self.register_face,
+            register_face_series=self.register_face_series,
+        )
+        return self._gui.run()
 
     def close(self) -> None:
+        if self._gui is not None:
+            self._gui.close()
+            self._gui = None
         self.stop_api()
         self.disconnect()
         self._pipeline.close()
@@ -193,6 +257,7 @@ class DroneApplication:
                 with self._frame_lock:
                     self._latest_analysis = analysis
                     self._latest_detections = detections
+                    self._latest_frame_id += 1
             except Exception:
                 time.sleep(0.05)
                 continue

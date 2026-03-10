@@ -10,6 +10,7 @@ Pierwszy szkic aplikacji do pracy z DJI Tello: lokalne API sterujące, live prev
 - połączenie z siecią Wi‑Fi drona Tello
 - lokalny model embeddingów SFace `.onnx`
 - lokalny model detekcji MediaPipe `.tflite`, jeśli używany jest backend `mediapipe.tasks`
+- systemowy `tkinter` do desktopowego GUI
 
 Instalacja `uv`:
 
@@ -77,6 +78,7 @@ Aplikacja robi dwie rzeczy:
 
 - uruchamia lokalne HTTP API
 - łączy się z Tello, analizuje obraz i pokazuje live preview z bounding boxami oraz przypisaną klasą
+- udostępnia GUI do rejestracji największej aktualnie widocznej twarzy jako embeddingu
 
 Przykładowe użycie:
 
@@ -102,6 +104,17 @@ curl -X POST http://127.0.0.1:8000/faces/register \
   -H "Content-Type: application/json" \
   -d '{"name":"grzegorz"}'
 ```
+
+## GUI
+
+Desktopowe GUI pokazuje:
+
+- live preview z bounding boxami
+- bieżące rozpoznania z cosine similarity
+- pole nazwy i przycisk `Capture Largest Face`, który zapisuje embedding do SQLite
+- listę znanych tożsamości
+
+Jeżeli aplikacja zgłasza brak `tkinter`, doinstaluj pakiet systemowy dla Twojej dystrybucji, np. `python3-tk`.
 
 ## Aktualny zakres
 
