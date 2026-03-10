@@ -17,6 +17,20 @@ class AppConfig:
     recognition_margin_threshold: float = 0.03
     min_detection_confidence: float = 0.9
     detection_nms_threshold: float = 0.25
+    tracking_target_name: str = "Maks"
+    tracking_target_distance_m: float = 0.3
+    tracking_face_width_m: float = 0.16
+    tracking_camera_hfov_deg: float = 82.6
+    tracking_yaw_deadband_px: float = 60.0
+    tracking_vertical_deadband_px: float = 45.0
+    tracking_distance_deadband_m: float = 0.08
+    tracking_forward_gain: float = 90.0
+    tracking_yaw_gain: float = 0.12
+    tracking_vertical_gain: float = 0.10
+    tracking_max_forward_speed: int = 30
+    tracking_max_yaw_speed: int = 35
+    tracking_max_vertical_speed: int = 25
+    takeoff_extra_rise_cm: int = 30
 
     @classmethod
     def from_env(cls, root_dir: Path) -> "AppConfig":
@@ -53,5 +67,45 @@ class AppConfig:
             ),
             detection_nms_threshold=float(
                 os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.25")
+            ),
+            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Maks"),
+            tracking_target_distance_m=float(
+                os.environ.get("DRONE_AI_TRACKING_TARGET_DISTANCE_M", "0.3")
+            ),
+            tracking_face_width_m=float(
+                os.environ.get("DRONE_AI_TRACKING_FACE_WIDTH_M", "0.16")
+            ),
+            tracking_camera_hfov_deg=float(
+                os.environ.get("DRONE_AI_TRACKING_CAMERA_HFOV_DEG", "82.6")
+            ),
+            tracking_yaw_deadband_px=float(
+                os.environ.get("DRONE_AI_TRACKING_YAW_DEADBAND_PX", "60")
+            ),
+            tracking_vertical_deadband_px=float(
+                os.environ.get("DRONE_AI_TRACKING_VERTICAL_DEADBAND_PX", "45")
+            ),
+            tracking_distance_deadband_m=float(
+                os.environ.get("DRONE_AI_TRACKING_DISTANCE_DEADBAND_M", "0.08")
+            ),
+            tracking_forward_gain=float(
+                os.environ.get("DRONE_AI_TRACKING_FORWARD_GAIN", "90")
+            ),
+            tracking_yaw_gain=float(
+                os.environ.get("DRONE_AI_TRACKING_YAW_GAIN", "0.12")
+            ),
+            tracking_vertical_gain=float(
+                os.environ.get("DRONE_AI_TRACKING_VERTICAL_GAIN", "0.10")
+            ),
+            tracking_max_forward_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_MAX_FORWARD_SPEED", "30")
+            ),
+            tracking_max_yaw_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_MAX_YAW_SPEED", "35")
+            ),
+            tracking_max_vertical_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_MAX_VERTICAL_SPEED", "25")
+            ),
+            takeoff_extra_rise_cm=int(
+                os.environ.get("DRONE_AI_TAKEOFF_EXTRA_RISE_CM", "30")
             ),
         )

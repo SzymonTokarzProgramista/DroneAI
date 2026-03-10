@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from drone_ai.config import AppConfig
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository
 from drone_ai.tello_controller import TelloController, TelloStatus
+from drone_ai.tracking.face_tracker import FaceTracker
 from drone_ai.vision.detector import MediaPipeFaceDetector
 from drone_ai.vision.embedder import SFaceEmbedder
 from drone_ai.vision.overlay import FaceOverlayRenderer
@@ -40,7 +41,10 @@ class DroneApplication:
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
-        self._controller = TelloController()
+        self._controller = TelloController(
+            takeoff_extra_rise_cm=config.takeoff_extra_rise_cm
+        )
+        self._tracker = FaceTracker(config)
         self._repository = SQLiteFaceRepository(config.database_path)
         self._recognizer = FaceRecognitionService(
             self._repository,
@@ -60,6 +64,9 @@ class DroneApplication:
         self._latest_analysis: FrameAnalysis | None = None
         self._latest_detections: list[FaceDetection] = []
         self._latest_frame_id = 0
+        self._tracking_enabled = False
+        self._tracking_target_visible = False
+        self._tracking_target_distance_m: float | None = None
         self._frame_lock = threading.RLock()
         self._stop_event = threading.Event()
         self._processing_thread: threading.Thread | None = None
@@ -81,11 +88,32 @@ class DroneApplication:
         return status
 
     def disconnect(self) -> None:
+        self._tracking_enabled = False
+        self._tracking_target_visible = False
+        self._tracking_target_distance_m = None
         self._stop_event.set()
         if self._processing_thread is not None:
             self._processing_thread.join(timeout=5)
             self._processing_thread = None
         self._controller.disconnect()
+
+    def takeoff(self) -> TelloStatus:
+        return self._controller.takeoff()
+
+    def land(self) -> TelloStatus:
+        self._tracking_enabled = False
+        self._tracking_target_visible = False
+        self._tracking_target_distance_m = None
+        return self._controller.land()
+
+    def enable_tracking(self) -> None:
+        self._tracking_enabled = True
+
+    def disable_tracking(self) -> None:
+        self._tracking_enabled = False
+        self._tracking_target_visible = False
+        self._tracking_target_distance_m = None
+        self._controller.stop_motion()
 
     def start_api(self, host: str, port: int) -> None:
         if FastAPI is None or uvicorn is None:
@@ -137,8 +165,13 @@ class DroneApplication:
             connected=tello_status.connected,
             battery=tello_status.battery,
             stream_enabled=tello_status.stream_enabled,
+            flying=tello_status.flying,
             known_identities=len(identities),
             visible_faces=visible_faces,
+            tracking_enabled=self._tracking_enabled,
+            tracking_target_name=self._tracker.target_name,
+            tracking_target_visible=self._tracking_target_visible,
+            tracking_target_distance_m=self._tracking_target_distance_m,
             api_url=self._api_url,
         )
 
@@ -231,6 +264,10 @@ class DroneApplication:
             list_identities=self.list_identities,
             register_face=self.register_face,
             register_face_series=self.register_face_series,
+            takeoff=self.takeoff,
+            land=self.land,
+            enable_tracking=self.enable_tracking,
+            disable_tracking=self.disable_tracking,
         )
         return self._gui.run()
 
@@ -247,20 +284,74 @@ class DroneApplication:
             try:
                 frame = self._controller.get_latest_frame()
                 analysis = self._pipeline.process_frame(frame)
+                tracked_faces = self._apply_tracking(frame, analysis.faces)
                 detections = [
                     FaceDetection(
                         bounding_box=face.bounding_box,
                         confidence=face.confidence,
                     )
-                    for face in analysis.faces
+                    for face in tracked_faces
                 ]
+                annotated_frame = self._pipeline.render(frame, tracked_faces)
                 with self._frame_lock:
-                    self._latest_analysis = analysis
+                    self._latest_analysis = FrameAnalysis(
+                        raw_frame=analysis.raw_frame,
+                        annotated_frame=annotated_frame,
+                        faces=tracked_faces,
+                    )
                     self._latest_detections = detections
                     self._latest_frame_id += 1
             except Exception:
+                self._tracking_target_visible = False
+                self._tracking_target_distance_m = None
+                self._controller.stop_motion()
                 time.sleep(0.05)
                 continue
+
+    def _apply_tracking(
+        self,
+        frame_bgr: Any,
+        faces: list[RecognizedFace],
+    ) -> list[RecognizedFace]:
+        target_face = self._tracker.select_target(faces)
+        command = self._tracker.build_command_full(
+            frame_bgr.shape[1],
+            frame_bgr.shape[0],
+            target_face,
+        )
+
+        tracked_faces: list[RecognizedFace] = []
+        for face in faces:
+            is_target = target_face is not None and face is target_face
+            estimated_distance_m = None
+            if is_target:
+                estimated_distance_m = command.estimated_distance_m
+            tracked_faces.append(
+                RecognizedFace(
+                    bounding_box=face.bounding_box,
+                    confidence=face.confidence,
+                    label=face.label,
+                    similarity=face.similarity,
+                    embedding_ready=face.embedding_ready,
+                    estimated_distance_m=estimated_distance_m,
+                    is_tracking_target=is_target,
+                )
+            )
+
+        self._tracking_target_visible = command.target_visible
+        self._tracking_target_distance_m = command.estimated_distance_m
+
+        if self._tracking_enabled:
+            self._controller.send_rc_control(
+                0,
+                command.forward_backward_velocity,
+                command.up_down_velocity,
+                command.yaw_velocity,
+            )
+        else:
+            self._controller.stop_motion()
+
+        return tracked_faces
 
 
 def create_api(application: DroneApplication) -> Any:
@@ -296,6 +387,34 @@ def create_api(application: DroneApplication) -> Any:
     def disconnect() -> dict[str, str]:
         application.disconnect()
         return {"status": "disconnected"}
+
+    @api.post("/takeoff")
+    def takeoff() -> dict[str, Any]:
+        try:
+            return asdict(application.takeoff())
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @api.post("/land")
+    def land() -> dict[str, Any]:
+        try:
+            return asdict(application.land())
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @api.post("/tracking/start")
+    def start_tracking() -> dict[str, Any]:
+        application.enable_tracking()
+        return asdict(application.status())
+
+    @api.post("/tracking/stop")
+    def stop_tracking() -> dict[str, Any]:
+        application.disable_tracking()
+        return asdict(application.status())
 
     @api.post("/faces/register")
     def register_face(request: RegisterFaceRequest) -> dict[str, Any]:

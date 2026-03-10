@@ -18,6 +18,8 @@ class FaceOverlayRenderer:
             color = (0, 200, 0) if face.label != "unknown" else (0, 165, 255)
             if not face.embedding_ready:
                 color = (0, 0, 255)
+            if face.is_tracking_target:
+                color = (255, 140, 0)
 
             cv2.rectangle(
                 annotated,
@@ -28,7 +30,16 @@ class FaceOverlayRenderer:
             )
 
             similarity = f"{face.similarity:.2f}" if face.similarity is not None else "--"
-            label = f"{face.label} | det={face.confidence:.2f} | sim={similarity}"
+            distance = (
+                f"{face.estimated_distance_m:.2f}m"
+                if face.estimated_distance_m is not None
+                else "--"
+            )
+            tracking_suffix = " | TRACK" if face.is_tracking_target else ""
+            label = (
+                f"{face.label} | det={face.confidence:.2f} | sim={similarity} | dist={distance}"
+                f"{tracking_suffix}"
+            )
             text_origin = (box.x, max(box.y - 10, 20))
             cv2.putText(
                 annotated,

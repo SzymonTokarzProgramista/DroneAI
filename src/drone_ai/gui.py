@@ -26,6 +26,10 @@ class DroneAIGUI:
         list_identities: Callable[[], list[IdentitySummary]],
         register_face: Callable[[str], IdentitySummary],
         register_face_series: Callable[[str], IdentitySummary],
+        takeoff: Callable[[], object],
+        land: Callable[[], object],
+        enable_tracking: Callable[[], None],
+        disable_tracking: Callable[[], None],
     ) -> None:
         self._get_frame = get_frame
         self._get_faces = get_faces
@@ -33,6 +37,10 @@ class DroneAIGUI:
         self._list_identities = list_identities
         self._register_face = register_face
         self._register_face_series = register_face_series
+        self._takeoff = takeoff
+        self._land = land
+        self._enable_tracking = enable_tracking
+        self._disable_tracking = disable_tracking
 
         self._root = tk.Tk()
         self._root.title(title)
@@ -42,6 +50,7 @@ class DroneAIGUI:
         self._preview_image: ImageTk.PhotoImage | None = None
         self._status_var = tk.StringVar(value="Starting...")
         self._message_var = tk.StringVar(value="Ready.")
+        self._tracking_button_var = tk.StringVar(value="Enable Tracking")
         self._name_var = tk.StringVar()
         self._visible_faces_var = tk.StringVar(value="No detections yet.")
         self._identities_var = tk.StringVar(value="No saved identities.")
@@ -85,51 +94,67 @@ class DroneAIGUI:
             justify="left",
         ).grid(row=1, column=0, sticky="ew", pady=(8, 12))
 
-        ttk.Separator(sidebar).grid(row=2, column=0, sticky="ew", pady=8)
+        flight_controls = ttk.Frame(sidebar)
+        flight_controls.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        flight_controls.columnconfigure(0, weight=1)
+        flight_controls.columnconfigure(1, weight=1)
+        ttk.Button(flight_controls, text="Takeoff", command=self._handle_takeoff).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+        ttk.Button(flight_controls, text="Land", command=self._handle_land).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0)
+        )
+        ttk.Button(
+            sidebar,
+            textvariable=self._tracking_button_var,
+            command=self._toggle_tracking,
+        ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Separator(sidebar).grid(row=4, column=0, sticky="ew", pady=8)
         ttk.Label(sidebar, text="Capture Face", font=("TkDefaultFont", 11, "bold")).grid(
-            row=3, column=0, sticky="w"
+            row=5, column=0, sticky="w"
         )
         ttk.Entry(sidebar, textvariable=self._name_var).grid(
-            row=4, column=0, sticky="ew", pady=(8, 6)
+            row=6, column=0, sticky="ew", pady=(8, 6)
         )
         ttk.Button(
             sidebar,
             text="Capture Largest Face",
             command=self._capture_face,
-        ).grid(row=5, column=0, sticky="ew")
+        ).grid(row=7, column=0, sticky="ew")
         ttk.Button(
             sidebar,
             text="Capture 5 Samples",
             command=self._capture_face_series,
-        ).grid(row=6, column=0, sticky="ew", pady=(6, 0))
+        ).grid(row=8, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(
             sidebar,
             text="Capture one sample or a short series of samples for the largest currently visible face.",
             wraplength=320,
             justify="left",
-        ).grid(row=7, column=0, sticky="ew", pady=(8, 12))
+        ).grid(row=9, column=0, sticky="ew", pady=(8, 12))
         ttk.Label(
             sidebar,
             textvariable=self._message_var,
             foreground="#1f4f99",
             wraplength=320,
             justify="left",
-        ).grid(row=8, column=0, sticky="ew", pady=(0, 12))
+        ).grid(row=10, column=0, sticky="ew", pady=(0, 12))
 
-        ttk.Separator(sidebar).grid(row=9, column=0, sticky="ew", pady=8)
+        ttk.Separator(sidebar).grid(row=11, column=0, sticky="ew", pady=8)
         ttk.Label(sidebar, text="Visible Faces", font=("TkDefaultFont", 11, "bold")).grid(
-            row=10, column=0, sticky="w"
+            row=12, column=0, sticky="w"
         )
         ttk.Label(
             sidebar,
             textvariable=self._visible_faces_var,
             wraplength=320,
             justify="left",
-        ).grid(row=11, column=0, sticky="ew", pady=(8, 12))
+        ).grid(row=13, column=0, sticky="ew", pady=(8, 12))
 
-        ttk.Separator(sidebar).grid(row=12, column=0, sticky="ew", pady=8)
+        ttk.Separator(sidebar).grid(row=14, column=0, sticky="ew", pady=8)
         identities_header = ttk.Frame(sidebar)
-        identities_header.grid(row=13, column=0, sticky="ew")
+        identities_header.grid(row=15, column=0, sticky="ew")
         identities_header.columnconfigure(0, weight=1)
         ttk.Label(
             identities_header,
@@ -146,7 +171,7 @@ class DroneAIGUI:
             textvariable=self._identities_var,
             wraplength=320,
             justify="left",
-        ).grid(row=14, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=16, column=0, sticky="ew", pady=(8, 0))
 
         self._root.protocol("WM_DELETE_WINDOW", self.close)
         self._refresh_identity_list()
@@ -171,19 +196,58 @@ class DroneAIGUI:
 
     def _update_status(self) -> None:
         status = self._get_status()
+        self._tracking_button_var.set(
+            "Disable Tracking" if status.tracking_enabled else "Enable Tracking"
+        )
         self._status_var.set(
             "\n".join(
                 [
                     f"Connected: {status.connected}",
                     f"Battery: {status.battery if status.battery is not None else '--'}%",
                     f"Stream: {status.stream_enabled}",
+                    f"Flying: {status.flying}",
                     f"Visible faces: {status.visible_faces}",
                     f"Known identities: {status.known_identities}",
+                    f"Tracking: {status.tracking_enabled}",
+                    f"Target: {status.tracking_target_name or '--'}",
+                    f"Target visible: {status.tracking_target_visible}",
+                    f"Target distance: "
+                    f"{status.tracking_target_distance_m:.2f}m"
+                    if status.tracking_target_distance_m is not None
+                    else "Target distance: --",
                     f"API: {status.api_url or 'not started'}",
                 ]
             )
         )
         self._visible_faces_var.set(self._format_visible_faces(self._get_faces()))
+
+    def _handle_takeoff(self) -> None:
+        try:
+            self._takeoff()
+            self._message_var.set("Takeoff command sent.")
+        except Exception as exc:
+            self._message_var.set(f"Takeoff failed: {exc}")
+
+    def _handle_land(self) -> None:
+        try:
+            self._land()
+            self._message_var.set("Land command sent.")
+        except Exception as exc:
+            self._message_var.set(f"Land failed: {exc}")
+
+    def _toggle_tracking(self) -> None:
+        status = self._get_status()
+        try:
+            if status.tracking_enabled:
+                self._disable_tracking()
+                self._message_var.set("Tracking disabled.")
+            else:
+                self._enable_tracking()
+                self._message_var.set(
+                    f"Tracking enabled for target '{status.tracking_target_name}'."
+                )
+        except Exception as exc:
+            self._message_var.set(f"Tracking toggle failed: {exc}")
 
     def _capture_face(self) -> None:
         identity_name = self._name_var.get().strip()

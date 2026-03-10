@@ -27,12 +27,15 @@ class FacePipeline:
         raw_frame = frame_bgr.copy()
         detections = self._detector.detect(raw_frame)
         faces = self._recognizer.recognize_faces(raw_frame, detections)
-        annotated_frame = self._renderer.render(raw_frame, faces)
+        annotated_frame = self.render(raw_frame, faces)
         return FrameAnalysis(
             raw_frame=raw_frame,
             annotated_frame=annotated_frame,
             faces=faces,
         )
+
+    def render(self, frame_bgr: np.ndarray, faces: list) -> np.ndarray:
+        return self._renderer.render(frame_bgr, faces)
 
     @staticmethod
     def choose_face(detections: list[FaceDetection]) -> FaceDetection:
