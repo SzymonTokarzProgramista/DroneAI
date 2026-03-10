@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-ai"
+version = "0.1.0"
+description = "Bootstrap projektu DroneAI pod drona Tello i dalszy rozwój face tracking."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "DroneAI contributors" },
+]
+dependencies = [
+  "djitellopy>=2.5",
+  "fastapi>=0.110",
+  "numpy>=1.26",
+  "mediapipe>=0.10.14",
+  "uvicorn>=0.29",
+  "opencv-python>=4.9",
+]
+
+[project.scripts]
+drone-ai = "drone_ai.app:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
