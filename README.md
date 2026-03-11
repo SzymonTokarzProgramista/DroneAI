@@ -1,132 +1,93 @@
 # DroneAI
 
-Pierwszy szkic aplikacji do pracy z DJI Tello: lokalne API sterujące, live preview z przedniej kamery, detekcja twarzy i rozpoznawanie twarzy z zapisami embeddingów w SQLite.
+Initial prototype of an application for working with a **DJI Tello** drone: a local control API, live preview from the front camera, face detection, and face recognition with embeddings stored in SQLite.
 
-## Wymagania
+---
 
-- Python 3.10+
+# Requirements
+
+- Python **3.10+**
 - `uv`
-- dron DJI Tello do testów połączenia
-- połączenie z siecią Wi‑Fi drona Tello
-- lokalny model embeddingów SFace `.onnx`
-- lokalny model detekcji MediaPipe `.tflite`, jeśli używany jest backend `mediapipe.tasks`
-- systemowy `tkinter` do desktopowego GUI
+- **DJI Tello drone** (for connection testing)
+- Local **SFace embedding model** (`.onnx`)
+- Local **MediaPipe face detector model** (`.tflite`) if using the `mediapipe.tasks` backend
+- System `tkinter` package for the desktop GUI
 
-Instalacja `uv`:
+Install `uv`:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-## Uruchomienie
+---
 
-Najprostszy sposób:
+# Running the Application
+
+The simplest way:
 
 ```bash
 ./start.sh
 ```
 
-Skrypt:
+---
 
-- sprawdza, czy `uv` jest dostępne
-- tworzy lokalne `.venv`
-- synchronizuje środowisko z `pyproject.toml`
-- uruchamia aplikację przez `uv run python app.py`
+# DJITelloPy
 
-## DJITelloPy
+The project uses the **DJITelloPy** library as the communication layer for the Tello drone.
 
-Projekt używa biblioteki `DJITelloPy` jako warstwy komunikacji z dronem Tello:
+---
 
-- pakiet runtime: `djitellopy`
-- podstawowy handshake: `connect()`
-- odczyt statusu: `get_battery()`
-- pobranie obrazu z kamery przedniej przez `get_frame_read()`
-- start streamu: `streamon()`
+# Vision Stack
 
-## Vision stack
+The face recognition pipeline is divided into separate layers:
 
-Pipeline rozpoznawania twarzy jest podzielony na osobne warstwy:
+- **MediaPipe** – face detector
+- **OpenCV SFace** – face embedding model
+- **SQLite** – storage for identities and embeddings
+- **OpenCV GUI** – live preview with bounding boxes and identity labels
 
-- MediaPipe jako detektor twarzy
-- OpenCV SFace jako model embeddingów
-- SQLite jako magazyn klas i embeddingów
-- OpenCV GUI jako live preview z bounding boxami i etykietą klasy
+Default database:
 
-Domyślna baza:
+```
+data/drone_ai.sqlite3
+```
 
-`data/drone_ai.sqlite3`
+Default embedding model:
 
-Domyślny model embeddingów:
+```
+models/face_recognition_sface_2021dec_int8.onnx
+```
 
-`models/face_recognition_sface_2021dec_int8.onnx`
+Fallback detector for MediaPipe Tasks:
 
-Fallback dla detektora MediaPipe Tasks:
+```
+models/blaze_face_short_range.tflite
+```
 
-`models/blaze_face_short_range.tflite`
+Models must be downloaded locally. See details in:
 
-Modele trzeba pobrać lokalnie. Szczegóły są w [models/README.md](/home/lsriw/grzegorz-braun/DroneAI/models/README.md).
+```
+models/README.md
+```
 
-## Aplikacja
+---
 
-Główny entrypoint projektu to:
+# Application
+
+The main entry point of the project:
 
 ```bash
 python3 app.py
 ```
 
-Aplikacja robi dwie rzeczy:
+The application performs the following tasks:
 
-- uruchamia lokalne HTTP API
-- łączy się z Tello, analizuje obraz i pokazuje live preview z bounding boxami oraz przypisaną klasą
-- udostępnia GUI do rejestracji największej aktualnie widocznej twarzy jako embeddingu
+- starts a **local HTTP API**
+- connects to the **Tello drone**
+- processes frames from the camera
+- displays a **live preview with bounding boxes and recognized identities**
+- provides a **GUI for registering the largest visible face as an embedding**
 
-Przykładowe użycie:
 
-```bash
-uv run python app.py
-uv run python app.py --host 0.0.0.0 --port 8000
-uv run python app.py --skip-preview
-```
-
-Domyślne endpointy API:
-
-- `GET /health`
-- `GET /status`
-- `GET /identities`
-- `POST /connect`
-- `POST /disconnect`
-- `POST /faces/register`
-
-Przykład rejestracji twarzy z aktualnie widocznej największej twarzy:
-
-```bash
-curl -X POST http://127.0.0.1:8000/faces/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"grzegorz"}'
-```
-
-## GUI
-
-Desktopowe GUI pokazuje:
-
-- live preview z bounding boxami
-- bieżące rozpoznania z cosine similarity
-- pole nazwy i przycisk `Capture Largest Face`, który zapisuje embedding do SQLite
-- listę znanych tożsamości
-
-Jeżeli aplikacja zgłasza brak `tkinter`, doinstaluj pakiet systemowy dla Twojej dystrybucji, np. `python3-tk`.
-
-## Aktualny zakres
-
-Ten etap zawiera:
-
-- pojedynczy entrypoint `app.py`
-- moduł integracji z Tello oparty o `DJITelloPy`
-- lokalne API do podstawowego sterowania
-- live preview z przedniej kamery Tello
-- MediaPipe detektor twarzy
-- SFace embeddingi twarzy
-- SQLite do przechowywania klas i embeddingów
-- skrypt bootstrapujący `start.sh`
-
-Śledzenie twarzy i utrzymywanie stałej odległości będą dodane w kolejnych krokach.
+- **face tracking**
+- maintaining a **constant distance to the tracked face**
