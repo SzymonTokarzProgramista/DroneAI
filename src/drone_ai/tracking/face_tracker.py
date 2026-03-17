@@ -11,6 +11,7 @@ from drone_ai.vision.schemas import RecognizedFace
 
 @dataclass(frozen=True)
 class TrackingCommand:
+    left_right_velocity: int
     forward_backward_velocity: int
     up_down_velocity: int
     yaw_velocity: int
@@ -32,9 +33,15 @@ class FaceTracker:
         self._forward_gain = config.tracking_forward_gain
         self._yaw_gain = config.tracking_yaw_gain
         self._vertical_gain = config.tracking_vertical_gain
+        self._lateral_gain = config.tracking_lateral_gain
+        self._min_lateral_speed = config.tracking_min_lateral_speed
         self._max_forward_speed = config.tracking_max_forward_speed
         self._max_yaw_speed = config.tracking_max_yaw_speed
         self._max_vertical_speed = config.tracking_max_vertical_speed
+        self._max_lateral_speed = config.tracking_max_lateral_speed
+        self._head_pose_enabled = config.tracking_head_pose_enabled
+        self._head_yaw_deadband_deg = config.tracking_head_yaw_deadband_deg
+        self._orbit_yaw_assist_px_per_deg = config.tracking_orbit_yaw_assist_px_per_deg
 
     @property
     def target_name(self) -> str:
@@ -60,7 +67,7 @@ class FaceTracker:
 
     def build_command(self, frame_width: int, target_face: RecognizedFace | None) -> TrackingCommand:
         if target_face is None:
-            return TrackingCommand(0, 0, 0, None, False)
+            return TrackingCommand(0, 0, 0, 0, None, False)
 
         estimated_distance_m = self.estimate_distance_m(
             frame_width,
@@ -70,7 +77,11 @@ class FaceTracker:
         yaw_velocity = 0
         face_center_x = target_face.bounding_box.x + target_face.bounding_box.width / 2.0
         frame_center_x = frame_width / 2.0
-        horizontal_error_px = face_center_x - frame_center_x
+        desired_face_center_x = frame_center_x
+        if self._head_pose_enabled and target_face.head_pose_ready and target_face.head_yaw_deg is not None:
+            desired_face_center_x += target_face.head_yaw_deg * self._orbit_yaw_assist_px_per_deg
+
+        horizontal_error_px = face_center_x - desired_face_center_x
         if abs(horizontal_error_px) > self._yaw_deadband_px:
             yaw_velocity = self._clamp_speed(
                 horizontal_error_px * self._yaw_gain,
@@ -86,7 +97,18 @@ class FaceTracker:
                     self._max_forward_speed,
                 )
 
+        left_right_velocity = 0
+        if self._head_pose_enabled and target_face.head_pose_ready and target_face.head_yaw_deg is not None:
+            head_yaw_error_deg = target_face.head_yaw_deg
+            if abs(head_yaw_error_deg) > self._head_yaw_deadband_deg:
+                left_right_velocity = self._clamp_speed_with_minimum(
+                    head_yaw_error_deg * self._lateral_gain,
+                    self._min_lateral_speed,
+                    self._max_lateral_speed,
+                )
+
         return TrackingCommand(
+            left_right_velocity=left_right_velocity,
             forward_backward_velocity=forward_backward_velocity,
             up_down_velocity=0,
             yaw_velocity=yaw_velocity,
@@ -116,6 +138,7 @@ class FaceTracker:
             )
 
         return TrackingCommand(
+            left_right_velocity=command.left_right_velocity,
             forward_backward_velocity=command.forward_backward_velocity,
             up_down_velocity=up_down_velocity,
             yaw_velocity=command.yaw_velocity,
@@ -128,3 +151,15 @@ class FaceTracker:
         if value > 0:
             return min(int(round(value)), limit)
         return max(int(round(value)), -limit)
+
+    @staticmethod
+    def _clamp_speed_with_minimum(value: float, minimum: int, limit: int) -> int:
+        if value == 0:
+            return 0
+
+        clamped = FaceTracker._clamp_speed(value, limit)
+        if clamped > 0:
+            return max(clamped, minimum)
+        if clamped < 0:
+            return min(clamped, -minimum)
+        return 0

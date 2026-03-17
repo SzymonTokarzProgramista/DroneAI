@@ -4,6 +4,7 @@ Projekt oczekuje lokalnych modeli dla dwóch etapów pipeline'u:
 
 - embedding twarzy OpenCV SFace
 - detekcja twarzy MediaPipe Tasks, jeśli zainstalowany `mediapipe` nie wystawia `solutions`
+- landmarki twarzy MediaPipe Tasks do head pose i mesh overlay
 
 ## SFace embedder
 
@@ -31,3 +32,19 @@ z tym lokalnym modelem detekcji.
 Override:
 
 `DRONE_AI_DETECTOR_MODEL=/sciezka/do/modelu.tflite`
+
+## MediaPipe Face Landmarker
+
+Domyślna ścieżka:
+
+`models/face_landmarker.task`
+
+Model ten jest używany do:
+
+- mesh overlay w GUI
+- estymacji `yaw`/`pitch` głowy
+- sterowania orbitowaniem względem kierunku twarzy
+
+Override:
+
+`DRONE_AI_FACE_LANDMARKER_MODEL=/sciezka/do/modelu.task`

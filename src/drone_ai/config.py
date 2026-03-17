@@ -12,6 +12,7 @@ class AppConfig:
     database_path: Path
     embedder_model_path: Path
     detector_model_path: Path
+    face_landmarker_model_path: Path = Path("models/face_landmarker.task")
     preview_window_name: str = "DroneAI Tello Front Camera"
     recognition_threshold: float = 0.46
     recognition_margin_threshold: float = 0.03
@@ -27,9 +28,16 @@ class AppConfig:
     tracking_forward_gain: float = 90.0
     tracking_yaw_gain: float = 0.12
     tracking_vertical_gain: float = 0.10
+    tracking_lateral_gain: float = 0.65
+    tracking_min_lateral_speed: int = 12
     tracking_max_forward_speed: int = 30
     tracking_max_yaw_speed: int = 35
     tracking_max_vertical_speed: int = 25
+    tracking_max_lateral_speed: int = 20
+    tracking_head_pose_enabled: bool = True
+    tracking_head_yaw_deadband_deg: float = 12.0
+    tracking_head_pose_min_confidence: float = 0.5
+    tracking_orbit_yaw_assist_px_per_deg: float = 3.5
     takeoff_extra_rise_cm: int = 30
 
     @classmethod
@@ -49,15 +57,22 @@ class AppConfig:
                 root_dir / "models" / "blaze_face_short_range.tflite",
             )
         )
+        face_landmarker_model_path = Path(
+            os.environ.get(
+                "DRONE_AI_FACE_LANDMARKER_MODEL",
+                root_dir / "models" / "face_landmarker.task",
+            )
+        )
         return cls(
             database_path=database_path,
             embedder_model_path=embedder_model_path,
             detector_model_path=detector_model_path,
+            face_landmarker_model_path=face_landmarker_model_path,
             preview_window_name=os.environ.get(
                 "DRONE_AI_PREVIEW_WINDOW", "DroneAI Tello Front Camera"
             ),
             recognition_threshold=float(
-                os.environ.get("DRONE_AI_RECOGNITION_THRESHOLD", "0.46")
+                os.environ.get("DRONE_AI_RECOGNITION_THRESHOLD", "0.6")
             ),
             recognition_margin_threshold=float(
                 os.environ.get("DRONE_AI_RECOGNITION_MARGIN_THRESHOLD", "0.03")
@@ -68,7 +83,7 @@ class AppConfig:
             detection_nms_threshold=float(
                 os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.25")
             ),
-            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Maks"),
+            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Szymon"),
             tracking_target_distance_m=float(
                 os.environ.get("DRONE_AI_TRACKING_TARGET_DISTANCE_M", "0.3")
             ),
@@ -96,6 +111,12 @@ class AppConfig:
             tracking_vertical_gain=float(
                 os.environ.get("DRONE_AI_TRACKING_VERTICAL_GAIN", "0.10")
             ),
+            tracking_lateral_gain=float(
+                os.environ.get("DRONE_AI_TRACKING_LATERAL_GAIN", "0.65")
+            ),
+            tracking_min_lateral_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_MIN_LATERAL_SPEED", "12")
+            ),
             tracking_max_forward_speed=int(
                 os.environ.get("DRONE_AI_TRACKING_MAX_FORWARD_SPEED", "30")
             ),
@@ -104,6 +125,22 @@ class AppConfig:
             ),
             tracking_max_vertical_speed=int(
                 os.environ.get("DRONE_AI_TRACKING_MAX_VERTICAL_SPEED", "25")
+            ),
+            tracking_max_lateral_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_MAX_LATERAL_SPEED", "20")
+            ),
+            tracking_head_pose_enabled=os.environ.get(
+                "DRONE_AI_TRACKING_HEAD_POSE_ENABLED", "true"
+            ).strip().lower()
+            not in {"0", "false", "no", "off"},
+            tracking_head_yaw_deadband_deg=float(
+                os.environ.get("DRONE_AI_TRACKING_HEAD_YAW_DEADBAND_DEG", "12")
+            ),
+            tracking_head_pose_min_confidence=float(
+                os.environ.get("DRONE_AI_TRACKING_HEAD_POSE_MIN_CONFIDENCE", "0.5")
+            ),
+            tracking_orbit_yaw_assist_px_per_deg=float(
+                os.environ.get("DRONE_AI_TRACKING_ORBIT_YAW_ASSIST_PX_PER_DEG", "3.5")
             ),
             takeoff_extra_rise_cm=int(
                 os.environ.get("DRONE_AI_TAKEOFF_EXTRA_RISE_CM", "30")
