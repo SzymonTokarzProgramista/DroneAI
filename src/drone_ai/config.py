@@ -17,6 +17,7 @@ class AppConfig:
     recognition_threshold: float = 0.46
     recognition_margin_threshold: float = 0.03
     min_detection_confidence: float = 0.9
+    recovery_detection_confidence: float = 0.62
     detection_nms_threshold: float = 0.25
     tracking_target_name: str = "Maks"
     tracking_target_distance_m: float = 0.3
@@ -33,11 +34,19 @@ class AppConfig:
     tracking_max_forward_speed: int = 30
     tracking_max_yaw_speed: int = 35
     tracking_max_vertical_speed: int = 25
+    tracking_min_vertical_speed: int = 8
     tracking_max_lateral_speed: int = 20
     tracking_head_pose_enabled: bool = True
     tracking_head_yaw_deadband_deg: float = 12.0
     tracking_head_pose_min_confidence: float = 0.5
     tracking_orbit_yaw_assist_px_per_deg: float = 3.5
+    tracking_reacquire_timeout_seconds: float = 1.8
+    tracking_search_yaw_speed: int = 18
+    tracking_reacquire_match_max_distance_px: float = 220.0
+    tracking_reacquire_min_confidence: float = 0.9
+    tracking_reacquire_min_score: float = 0.12
+    tracking_preferred_frontal_yaw_deg: float = 14.0
+    tracking_profile_recenter_yaw_gain: float = 0.45
     takeoff_extra_rise_cm: int = 30
 
     @classmethod
@@ -80,10 +89,13 @@ class AppConfig:
             min_detection_confidence=float(
                 os.environ.get("DRONE_AI_MIN_DETECTION_CONFIDENCE", "0.9")
             ),
-            detection_nms_threshold=float(
-                os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.25")
+            recovery_detection_confidence=float(
+                os.environ.get("DRONE_AI_RECOVERY_DETECTION_CONFIDENCE", "0.62")
             ),
-            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Szymon"),
+            detection_nms_threshold=float(
+                os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.4")
+            ),
+            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Kuba"),
             tracking_target_distance_m=float(
                 os.environ.get("DRONE_AI_TRACKING_TARGET_DISTANCE_M", "0.3")
             ),
@@ -126,6 +138,9 @@ class AppConfig:
             tracking_max_vertical_speed=int(
                 os.environ.get("DRONE_AI_TRACKING_MAX_VERTICAL_SPEED", "25")
             ),
+            tracking_min_vertical_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_MIN_VERTICAL_SPEED", "8")
+            ),
             tracking_max_lateral_speed=int(
                 os.environ.get("DRONE_AI_TRACKING_MAX_LATERAL_SPEED", "20")
             ),
@@ -141,6 +156,27 @@ class AppConfig:
             ),
             tracking_orbit_yaw_assist_px_per_deg=float(
                 os.environ.get("DRONE_AI_TRACKING_ORBIT_YAW_ASSIST_PX_PER_DEG", "3.5")
+            ),
+            tracking_reacquire_timeout_seconds=float(
+                os.environ.get("DRONE_AI_TRACKING_REACQUIRE_TIMEOUT_SECONDS", "1.8")
+            ),
+            tracking_search_yaw_speed=int(
+                os.environ.get("DRONE_AI_TRACKING_SEARCH_YAW_SPEED", "18")
+            ),
+            tracking_reacquire_match_max_distance_px=float(
+                os.environ.get("DRONE_AI_TRACKING_REACQUIRE_MATCH_MAX_DISTANCE_PX", "220")
+            ),
+            tracking_reacquire_min_confidence=float(
+                os.environ.get("DRONE_AI_TRACKING_REACQUIRE_MIN_CONFIDENCE", "0.9")
+            ),
+            tracking_reacquire_min_score=float(
+                os.environ.get("DRONE_AI_TRACKING_REACQUIRE_MIN_SCORE", "0.12")
+            ),
+            tracking_preferred_frontal_yaw_deg=float(
+                os.environ.get("DRONE_AI_TRACKING_PREFERRED_FRONTAL_YAW_DEG", "14")
+            ),
+            tracking_profile_recenter_yaw_gain=float(
+                os.environ.get("DRONE_AI_TRACKING_PROFILE_RECENTER_YAW_GAIN", "0.45")
             ),
             takeoff_extra_rise_cm=int(
                 os.environ.get("DRONE_AI_TAKEOFF_EXTRA_RISE_CM", "30")

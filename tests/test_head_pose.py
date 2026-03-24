@@ -71,6 +71,23 @@ class HeadPoseEstimatorTests(unittest.TestCase):
         assert yaw is not None
         self.assertGreater(yaw, 0.0)
 
+    def test_normalize_landmarks_accepts_tasks_shape(self) -> None:
+        landmarks = [
+            type("Landmark", (), {"x": 0.1, "y": 0.2})(),
+            type("Landmark", (), {"x": 0.3, "y": 0.4})(),
+        ]
+
+        normalized = MediaPipeHeadPoseEstimator._normalize_landmarks(landmarks)
+
+        self.assertEqual(normalized, landmarks)
+
+    def test_estimate_confidence_uses_face_landmarks_when_blendshapes_are_missing(self) -> None:
+        result = type("Result", (), {"face_landmarks": [[object(), object()]]})()
+
+        confidence = MediaPipeHeadPoseEstimator._estimate_confidence(result)
+
+        self.assertEqual(confidence, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

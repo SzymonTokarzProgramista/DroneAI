@@ -152,7 +152,20 @@ class MediaPipeHeadPoseEstimator:
                 mesh_points=(),
             )
 
-        landmarks = landmarks_list[0].landmark
+        landmarks = self._normalize_landmarks(landmarks_list[0])
+        if not landmarks:
+            return HeadPoseEstimate(
+                mesh_ready=False,
+                pose_ready=False,
+                yaw_deg=None,
+                pitch_deg=None,
+                confidence=0.0,
+                failure_reason="invalid_landmarks",
+                debug_message=f"type={type(landmarks_list[0]).__name__}",
+                yaw_source=None,
+                mesh_points=(),
+            )
+
         confidence = self._estimate_confidence(result)
         if confidence < self._min_confidence:
             return HeadPoseEstimate(
@@ -276,11 +289,32 @@ class MediaPipeHeadPoseEstimator:
 
     @staticmethod
     def _estimate_confidence(result: Any) -> float:
-        faces = getattr(result, "multi_face_landmarks", None)
+        faces = getattr(result, "face_landmarks", None)
         if not faces:
             return 0.0
-        # MediaPipe FaceMesh solution API does not expose a dedicated confidence per face.
+
+        face_blendshapes = getattr(result, "face_blendshapes", None)
+        if face_blendshapes:
+            scores = [
+                float(category.score)
+                for face_categories in face_blendshapes
+                for category in face_categories
+                if getattr(category, "score", None) is not None
+            ]
+            if scores:
+                return max(scores)
+
+        # Face Landmarker does not always expose a dedicated per-face confidence.
         return 1.0
+
+    @staticmethod
+    def _normalize_landmarks(landmarks: Any) -> list[Any]:
+        nested_landmarks = getattr(landmarks, "landmark", None)
+        if nested_landmarks is not None:
+            return list(nested_landmarks)
+        if isinstance(landmarks, (list, tuple)):
+            return list(landmarks)
+        return []
 
     def _solve_pose(
         self,

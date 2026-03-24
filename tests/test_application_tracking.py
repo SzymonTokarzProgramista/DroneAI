@@ -91,6 +91,7 @@ def make_config(**overrides: object) -> AppConfig:
         "tracking_lateral_gain": 1.0,
         "tracking_min_lateral_speed": 0,
         "tracking_max_lateral_speed": 25,
+        "tracking_min_vertical_speed": 8,
         "tracking_orbit_yaw_assist_px_per_deg": 0.0,
     }
     values.update(overrides)
@@ -133,8 +134,28 @@ class ApplicationTrackingTests(unittest.TestCase):
         self.assertEqual(tracked_faces[0].head_yaw_deg, 24.0)
         self.assertEqual(tracked_faces[0].head_pose_debug, "dummy-debug")
         self.assertEqual(tracked_faces[0].head_mesh_points, ((10, 10), (12, 12)))
-        self.assertEqual(application._controller.calls[0][0], 24)
+        self.assertGreater(application._controller.calls[0][0], 0)
+        self.assertGreater(application._controller.calls[0][3], 0)
         self.assertEqual(application._head_pose.calls, 1)
+
+
+    def test_apply_tracking_adjusts_height_when_face_is_too_low(self) -> None:
+        application = self._make_application()
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        faces = [
+            RecognizedFace(
+                bounding_box=BoundingBox(x=250, y=270, width=120, height=140),
+                confidence=0.99,
+                label="Maks",
+                similarity=0.91,
+                embedding_ready=True,
+            )
+        ]
+
+        application._apply_tracking(frame, faces)
+
+        self.assertNotEqual(application._controller.calls[0][2], 0)
+        self.assertGreaterEqual(abs(application._controller.calls[0][2]), 8)
 
     def test_apply_tracking_skips_head_pose_without_target(self) -> None:
         application = self._make_application()

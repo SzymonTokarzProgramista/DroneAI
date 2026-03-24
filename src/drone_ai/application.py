@@ -56,6 +56,7 @@ class DroneApplication:
         self._pipeline = FacePipeline(
             MediaPipeFaceDetector(
                 min_detection_confidence=config.min_detection_confidence,
+                recovery_detection_confidence=config.recovery_detection_confidence,
                 detector_model_path=config.detector_model_path,
                 nms_threshold=config.detection_nms_threshold,
             ),
