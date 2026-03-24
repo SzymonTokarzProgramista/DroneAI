@@ -33,6 +33,7 @@ class MediaPipeFaceDetector:
             min_detection_confidence=min_detection_confidence,
             detector_model_path=detector_model_path,
         )
+        self._profile_detector = self._load_profile_detector()
 
     def detect(self, frame_bgr: Any) -> list[FaceDetection]:
         frame_height, frame_width = frame_bgr.shape[:2]
@@ -41,7 +42,7 @@ class MediaPipeFaceDetector:
         if self._backend == "solutions":
             result = self._detector.process(rgb_frame)
             if not result.detections:
-                return []
+                return self._merge_with_profile(frame_bgr, [])
 
             detections: list[FaceDetection] = []
             for detection in result.detections:
@@ -56,13 +57,13 @@ class MediaPipeFaceDetector:
                         confidence=float(detection.score[0]) if detection.score else 0.0,
                     )
                 )
-            return self._filter_detections(detections)
+            return self._merge_with_profile(frame_bgr, self._filter_detections(detections))
 
         if self._backend == "tasks":
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
             result = self._detector.detect(mp_image)
             if not result.detections:
-                return []
+                return self._merge_with_profile(frame_bgr, [])
 
             detections: list[FaceDetection] = []
             for detection in result.detections:
@@ -80,7 +81,7 @@ class MediaPipeFaceDetector:
                         confidence=confidence,
                     )
                 )
-            return self._filter_detections(detections)
+            return self._merge_with_profile(frame_bgr, self._filter_detections(detections))
 
         if self._backend == "haar":
             grayscale = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -102,7 +103,7 @@ class MediaPipeFaceDetector:
                 )
                 for (x, y, width, height) in faces
             ]
-            return self._filter_detections(detections)
+            return self._merge_with_profile(frame_bgr, self._filter_detections(detections))
 
         raise RuntimeError("Face detector backend was not initialized correctly.")
 
@@ -229,6 +230,73 @@ class MediaPipeFaceDetector:
         if detector.empty():
             return None
         return detector
+
+    @staticmethod
+    def _load_profile_detector() -> Any | None:
+        cascade_path = Path(cv2.data.haarcascades) / "haarcascade_profileface.xml"
+        if not cascade_path.exists():
+            return None
+
+        detector = cv2.CascadeClassifier(str(cascade_path))
+        if detector.empty():
+            return None
+        return detector
+
+    def _detect_profile_faces(self, frame_bgr: Any) -> list[FaceDetection]:
+        if self._profile_detector is None:
+            return []
+
+        grayscale = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        frame_height, frame_width = grayscale.shape[:2]
+        detections: list[FaceDetection] = []
+
+        # Run on original and mirrored image to capture both profile directions.
+        for mirrored in (False, True):
+            source = cv2.flip(grayscale, 1) if mirrored else grayscale
+            faces = self._profile_detector.detectMultiScale(
+                source,
+                scaleFactor=1.1,
+                minNeighbors=4,
+                minSize=(36, 36),
+            )
+            for x, y, width, height in faces:
+                face_x = int(frame_width - (x + width)) if mirrored else int(x)
+                face_y = int(y)
+                box_width = int(width)
+                box_height = int(height)
+                if box_width <= 0 or box_height <= 0:
+                    continue
+                if face_x < 0 or face_y < 0:
+                    continue
+                if face_x + box_width > frame_width or face_y + box_height > frame_height:
+                    continue
+                detections.append(
+                    FaceDetection(
+                        bounding_box=BoundingBox(
+                            x=face_x,
+                            y=face_y,
+                            width=box_width,
+                            height=box_height,
+                        ),
+                        confidence=1.0,
+                    )
+                )
+
+        return detections
+
+    def _merge_with_profile(
+        self,
+        frame_bgr: Any,
+        detections: list[FaceDetection],
+    ) -> list[FaceDetection]:
+        if detections or self._profile_detector is None:
+            return detections
+
+        profile_detections = self._detect_profile_faces(frame_bgr)
+        if not profile_detections:
+            return detections
+
+        return self._filter_detections(profile_detections)
 
     def _filter_detections(self, detections: list[FaceDetection]) -> list[FaceDetection]:
         filtered = [

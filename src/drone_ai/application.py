@@ -12,6 +12,7 @@ from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceReposito
 from drone_ai.tello_controller import TelloController, TelloStatus
 from drone_ai.tracking.face_tracker import FaceTracker
 from drone_ai.vision.detector import MediaPipeFaceDetector
+from drone_ai.vision.head_pose import MediaPipeHeadPoseEstimator
 from drone_ai.vision.embedder import SFaceEmbedder
 from drone_ai.vision.overlay import FaceOverlayRenderer
 from drone_ai.vision.pipeline import FacePipeline
@@ -61,12 +62,21 @@ class DroneApplication:
             self._recognizer,
             FaceOverlayRenderer(),
         )
+        self._head_pose = MediaPipeHeadPoseEstimator(
+            enabled=config.tracking_head_pose_enabled,
+            min_confidence=config.tracking_head_pose_min_confidence,
+            model_path=config.face_landmarker_model_path,
+        )
         self._latest_analysis: FrameAnalysis | None = None
         self._latest_detections: list[FaceDetection] = []
         self._latest_frame_id = 0
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m: float | None = None
+        self._show_head_mesh = False
+        self._cached_head_pose = None
+        self._cached_head_pose_box: tuple[int, int, int, int] | None = None
+        self._cached_head_pose_at = 0.0
         self._frame_lock = threading.RLock()
         self._stop_event = threading.Event()
         self._processing_thread: threading.Thread | None = None
@@ -242,6 +252,13 @@ class DroneApplication:
                 return None
             return self._latest_analysis.annotated_frame.copy()
 
+    def head_mesh_enabled(self) -> bool:
+        return self._show_head_mesh
+
+    def toggle_head_mesh(self) -> bool:
+        self._show_head_mesh = not self._show_head_mesh
+        return self._show_head_mesh
+
     def latest_faces(self) -> list[RecognizedFace]:
         with self._frame_lock:
             if self._latest_analysis is None:
@@ -268,6 +285,8 @@ class DroneApplication:
             land=self.land,
             enable_tracking=self.enable_tracking,
             disable_tracking=self.disable_tracking,
+            head_mesh_enabled=self.head_mesh_enabled,
+            toggle_head_mesh=self.toggle_head_mesh,
         )
         return self._gui.run()
 
@@ -277,6 +296,7 @@ class DroneApplication:
             self._gui = None
         self.stop_api()
         self.disconnect()
+        self._head_pose.close()
         self._pipeline.close()
 
     def _processing_loop(self) -> None:
@@ -284,7 +304,15 @@ class DroneApplication:
             try:
                 frame = self._controller.get_latest_frame()
                 analysis = self._pipeline.process_frame(frame)
-                tracked_faces = self._apply_tracking(frame, analysis.faces)
+
+                tracked_faces = analysis.faces
+                try:
+                    tracked_faces = self._apply_tracking(frame, analysis.faces)
+                except Exception:
+                    self._tracking_target_visible = False
+                    self._tracking_target_distance_m = None
+                    self._controller.stop_motion()
+
                 detections = [
                     FaceDetection(
                         bounding_box=face.bounding_box,
@@ -292,7 +320,11 @@ class DroneApplication:
                     )
                     for face in tracked_faces
                 ]
-                annotated_frame = self._pipeline.render(frame, tracked_faces)
+                annotated_frame = self._pipeline.render(
+                    frame,
+                    tracked_faces,
+                    show_head_mesh=self._show_head_mesh,
+                )
                 with self._frame_lock:
                     self._latest_analysis = FrameAnalysis(
                         raw_frame=analysis.raw_frame,
@@ -314,18 +346,99 @@ class DroneApplication:
         faces: list[RecognizedFace],
     ) -> list[RecognizedFace]:
         target_face = self._tracker.select_target(faces)
+        need_target_pose = self._tracking_enabled and target_face is not None
+
+        mesh_preview_face = None
+        if need_target_pose:
+            mesh_preview_face = target_face
+        elif self._show_head_mesh and faces:
+            mesh_preview_face = max(faces, key=lambda face: face.bounding_box.area)
+
+        head_pose = None
+        if mesh_preview_face is not None:
+            pose_box = mesh_preview_face.bounding_box
+            pose_box_key = (pose_box.x, pose_box.y, pose_box.width, pose_box.height)
+            cache_interval_s = 0.0
+            if self._show_head_mesh:
+                cache_interval_s = 0.06 if need_target_pose else 0.12
+
+            now = time.monotonic()
+            use_cached_pose = (
+                cache_interval_s > 0.0
+                and self._cached_head_pose is not None
+                and self._cached_head_pose_box == pose_box_key
+                and (now - self._cached_head_pose_at) < cache_interval_s
+            )
+
+            if use_cached_pose:
+                head_pose = self._cached_head_pose
+            else:
+                head_pose = self._head_pose.estimate(
+                    frame_bgr,
+                    pose_box,
+                    include_mesh_points=self._show_head_mesh,
+                )
+                self._cached_head_pose = head_pose
+                self._cached_head_pose_box = pose_box_key
+                self._cached_head_pose_at = now
+        else:
+            self._cached_head_pose = None
+            self._cached_head_pose_box = None
+            self._cached_head_pose_at = 0.0
+
+        enriched_target_face = target_face
+        if (
+            target_face is not None
+            and mesh_preview_face is target_face
+            and head_pose is not None
+            and head_pose.pose_ready
+            and head_pose.yaw_deg is not None
+        ):
+            enriched_target_face = RecognizedFace(
+                bounding_box=target_face.bounding_box,
+                confidence=target_face.confidence,
+                label=target_face.label,
+                similarity=target_face.similarity,
+                embedding_ready=target_face.embedding_ready,
+                estimated_distance_m=target_face.estimated_distance_m,
+                is_tracking_target=target_face.is_tracking_target,
+                head_mesh_ready=head_pose.mesh_ready,
+                head_pose_ready=head_pose.pose_ready,
+                head_yaw_deg=head_pose.yaw_deg,
+                head_pitch_deg=head_pose.pitch_deg,
+                head_pose_failure_reason=head_pose.failure_reason,
+                head_pose_debug=head_pose.debug_message,
+                head_mesh_points=head_pose.mesh_points,
+            )
+
         command = self._tracker.build_command_full(
             frame_bgr.shape[1],
             frame_bgr.shape[0],
-            target_face,
+            enriched_target_face,
         )
 
         tracked_faces: list[RecognizedFace] = []
         for face in faces:
             is_target = target_face is not None and face is target_face
+            has_mesh_preview = mesh_preview_face is not None and face is mesh_preview_face
             estimated_distance_m = None
+            head_mesh_ready = False
+            head_pose_ready = False
+            head_yaw_deg = None
+            head_pitch_deg = None
+            head_pose_failure_reason = None
+            head_pose_debug = None
+            head_mesh_points: tuple[tuple[int, int], ...] = ()
             if is_target:
                 estimated_distance_m = command.estimated_distance_m
+            if has_mesh_preview and head_pose is not None:
+                head_mesh_ready = head_pose.mesh_ready
+                head_pose_ready = head_pose.pose_ready
+                head_yaw_deg = head_pose.yaw_deg
+                head_pitch_deg = head_pose.pitch_deg
+                head_pose_failure_reason = head_pose.failure_reason
+                head_pose_debug = head_pose.debug_message
+                head_mesh_points = head_pose.mesh_points
             tracked_faces.append(
                 RecognizedFace(
                     bounding_box=face.bounding_box,
@@ -335,6 +448,13 @@ class DroneApplication:
                     embedding_ready=face.embedding_ready,
                     estimated_distance_m=estimated_distance_m,
                     is_tracking_target=is_target,
+                    head_mesh_ready=head_mesh_ready,
+                    head_pose_ready=head_pose_ready,
+                    head_yaw_deg=head_yaw_deg,
+                    head_pitch_deg=head_pitch_deg,
+                    head_pose_failure_reason=head_pose_failure_reason,
+                    head_pose_debug=head_pose_debug,
+                    head_mesh_points=head_mesh_points,
                 )
             )
 
@@ -343,7 +463,7 @@ class DroneApplication:
 
         if self._tracking_enabled:
             self._controller.send_rc_control(
-                0,
+                command.left_right_velocity,
                 command.forward_backward_velocity,
                 command.up_down_velocity,
                 command.yaw_velocity,

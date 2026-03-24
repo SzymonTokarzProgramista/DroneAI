@@ -34,6 +34,13 @@ class RecognizedFace:
     embedding_ready: bool
     estimated_distance_m: float | None = None
     is_tracking_target: bool = False
+    head_mesh_ready: bool = False
+    head_pose_ready: bool = False
+    head_yaw_deg: float | None = None
+    head_pitch_deg: float | None = None
+    head_pose_failure_reason: str | None = None
+    head_pose_debug: str | None = None
+    head_mesh_points: tuple[tuple[int, int], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

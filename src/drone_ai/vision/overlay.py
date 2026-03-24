@@ -11,7 +11,13 @@ from drone_ai.vision.schemas import RecognizedFace
 class FaceOverlayRenderer:
     """Draws face boxes and labels on frames."""
 
-    def render(self, frame_bgr: np.ndarray, faces: list[RecognizedFace]) -> np.ndarray:
+    def render(
+        self,
+        frame_bgr: np.ndarray,
+        faces: list[RecognizedFace],
+        *,
+        show_head_mesh: bool = False,
+    ) -> np.ndarray:
         annotated = frame_bgr.copy()
         for face in faces:
             box = face.bounding_box
@@ -29,15 +35,29 @@ class FaceOverlayRenderer:
                 2,
             )
 
+            if show_head_mesh and face.head_mesh_ready and face.head_mesh_points:
+                mesh_step = max(1, len(face.head_mesh_points) // 96)
+                for point_x, point_y in face.head_mesh_points[::mesh_step]:
+                    if 0 <= point_x < annotated.shape[1] and 0 <= point_y < annotated.shape[0]:
+                        cv2.circle(annotated, (point_x, point_y), 1, (255, 255, 0), -1)
+
             similarity = f"{face.similarity:.2f}" if face.similarity is not None else "--"
             distance = (
                 f"{face.estimated_distance_m:.2f}m"
                 if face.estimated_distance_m is not None
                 else "--"
             )
+            head_yaw = (
+                f"{face.head_yaw_deg:+.0f}deg"
+                if face.head_pose_ready and face.head_yaw_deg is not None
+                else "--"
+            )
+            mesh_status = "ok" if face.head_mesh_ready else "--"
+            pose_status = face.head_pose_failure_reason or "ok"
+            debug_status = face.head_pose_debug or "--"
             tracking_suffix = " | TRACK" if face.is_tracking_target else ""
             label = (
-                f"{face.label} | det={face.confidence:.2f} | sim={similarity} | dist={distance}"
+                f"{face.label} | det={face.confidence:.2f} | sim={similarity} | dist={distance} | yaw={head_yaw} | mesh={mesh_status} | pose={pose_status} | dbg={debug_status}"
                 f"{tracking_suffix}"
             )
             text_origin = (box.x, max(box.y - 10, 20))

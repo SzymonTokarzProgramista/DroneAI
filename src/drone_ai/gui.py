@@ -30,6 +30,8 @@ class DroneAIGUI:
         land: Callable[[], object],
         enable_tracking: Callable[[], None],
         disable_tracking: Callable[[], None],
+        head_mesh_enabled: Callable[[], bool],
+        toggle_head_mesh: Callable[[], bool],
     ) -> None:
         self._get_frame = get_frame
         self._get_faces = get_faces
@@ -41,6 +43,8 @@ class DroneAIGUI:
         self._land = land
         self._enable_tracking = enable_tracking
         self._disable_tracking = disable_tracking
+        self._head_mesh_enabled = head_mesh_enabled
+        self._toggle_head_mesh = toggle_head_mesh
 
         self._root = tk.Tk()
         self._root.title(title)
@@ -54,6 +58,7 @@ class DroneAIGUI:
         self._name_var = tk.StringVar()
         self._visible_faces_var = tk.StringVar(value="No detections yet.")
         self._identities_var = tk.StringVar(value="No saved identities.")
+        self._head_mesh_button_var = tk.StringVar(value="Show FaceMesh")
 
         self._build_layout()
 
@@ -109,52 +114,57 @@ class DroneAIGUI:
             textvariable=self._tracking_button_var,
             command=self._toggle_tracking,
         ).grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            sidebar,
+            textvariable=self._head_mesh_button_var,
+            command=self._toggle_head_mesh_overlay,
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 8))
 
-        ttk.Separator(sidebar).grid(row=4, column=0, sticky="ew", pady=8)
+        ttk.Separator(sidebar).grid(row=5, column=0, sticky="ew", pady=8)
         ttk.Label(sidebar, text="Capture Face", font=("TkDefaultFont", 11, "bold")).grid(
-            row=5, column=0, sticky="w"
+            row=6, column=0, sticky="w"
         )
         ttk.Entry(sidebar, textvariable=self._name_var).grid(
-            row=6, column=0, sticky="ew", pady=(8, 6)
+            row=7, column=0, sticky="ew", pady=(8, 6)
         )
         ttk.Button(
             sidebar,
             text="Capture Largest Face",
             command=self._capture_face,
-        ).grid(row=7, column=0, sticky="ew")
+        ).grid(row=8, column=0, sticky="ew")
         ttk.Button(
             sidebar,
             text="Capture 5 Samples",
             command=self._capture_face_series,
-        ).grid(row=8, column=0, sticky="ew", pady=(6, 0))
+        ).grid(row=9, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(
             sidebar,
             text="Capture one sample or a short series of samples for the largest currently visible face.",
             wraplength=320,
             justify="left",
-        ).grid(row=9, column=0, sticky="ew", pady=(8, 12))
+        ).grid(row=10, column=0, sticky="ew", pady=(8, 12))
         ttk.Label(
             sidebar,
             textvariable=self._message_var,
             foreground="#1f4f99",
             wraplength=320,
             justify="left",
-        ).grid(row=10, column=0, sticky="ew", pady=(0, 12))
+        ).grid(row=11, column=0, sticky="ew", pady=(0, 12))
 
-        ttk.Separator(sidebar).grid(row=11, column=0, sticky="ew", pady=8)
+        ttk.Separator(sidebar).grid(row=12, column=0, sticky="ew", pady=8)
         ttk.Label(sidebar, text="Visible Faces", font=("TkDefaultFont", 11, "bold")).grid(
-            row=12, column=0, sticky="w"
+            row=13, column=0, sticky="w"
         )
         ttk.Label(
             sidebar,
             textvariable=self._visible_faces_var,
             wraplength=320,
             justify="left",
-        ).grid(row=13, column=0, sticky="ew", pady=(8, 12))
+        ).grid(row=14, column=0, sticky="ew", pady=(8, 12))
 
-        ttk.Separator(sidebar).grid(row=14, column=0, sticky="ew", pady=8)
+        ttk.Separator(sidebar).grid(row=15, column=0, sticky="ew", pady=8)
         identities_header = ttk.Frame(sidebar)
-        identities_header.grid(row=15, column=0, sticky="ew")
+        identities_header.grid(row=16, column=0, sticky="ew")
         identities_header.columnconfigure(0, weight=1)
         ttk.Label(
             identities_header,
@@ -171,7 +181,7 @@ class DroneAIGUI:
             textvariable=self._identities_var,
             wraplength=320,
             justify="left",
-        ).grid(row=16, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=17, column=0, sticky="ew", pady=(8, 0))
 
         self._root.protocol("WM_DELETE_WINDOW", self.close)
         self._refresh_identity_list()
@@ -198,6 +208,9 @@ class DroneAIGUI:
         status = self._get_status()
         self._tracking_button_var.set(
             "Disable Tracking" if status.tracking_enabled else "Enable Tracking"
+        )
+        self._head_mesh_button_var.set(
+            "Hide FaceMesh" if self._head_mesh_enabled() else "Show FaceMesh"
         )
         self._status_var.set(
             "\n".join(
@@ -248,6 +261,15 @@ class DroneAIGUI:
                 )
         except Exception as exc:
             self._message_var.set(f"Tracking toggle failed: {exc}")
+
+    def _toggle_head_mesh_overlay(self) -> None:
+        try:
+            enabled = self._toggle_head_mesh()
+            self._message_var.set(
+                "FaceMesh overlay enabled." if enabled else "FaceMesh overlay disabled."
+            )
+        except Exception as exc:
+            self._message_var.set(f"FaceMesh toggle failed: {exc}")
 
     def _capture_face(self) -> None:
         identity_name = self._name_var.get().strip()
@@ -306,7 +328,11 @@ class DroneAIGUI:
         lines = []
         for index, face in enumerate(faces, start=1):
             similarity = f"{face.similarity:.3f}" if face.similarity is not None else "--"
+            yaw = f"{face.head_yaw_deg:+.0f}deg" if face.head_pose_ready and face.head_yaw_deg is not None else "--"
+            mesh = "ok" if face.head_mesh_ready else "--"
+            pose = face.head_pose_failure_reason or "ok"
+            debug = face.head_pose_debug or "--"
             lines.append(
-                f"{index}. {face.label} | det={face.confidence:.2f} | cos={similarity}"
+                f"{index}. {face.label} | det={face.confidence:.2f} | cos={similarity} | yaw={yaw} | mesh={mesh} | pose={pose} | dbg={debug}"
             )
         return "\n".join(lines)

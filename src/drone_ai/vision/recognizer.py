@@ -120,7 +120,16 @@ class FaceRecognitionService:
                 second_best_similarity = similarity
 
         if best_similarity is None or best_similarity < self._similarity_threshold:
-            best_name = "unknown"
+            # Single-identity setups are common during onboarding; allow a softer floor.
+            if (
+                best_similarity is not None
+                and len(grouped_gallery) == 1
+                and best_name != "unknown"
+                and best_similarity >= max(0.30, self._similarity_threshold - 0.12)
+            ):
+                pass
+            else:
+                best_name = "unknown"
         elif second_best_similarity is not None:
             if (best_similarity - second_best_similarity) < self._margin_threshold:
                 best_name = "unknown"
