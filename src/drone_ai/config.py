@@ -47,7 +47,7 @@ class AppConfig:
     tracking_reacquire_min_score: float = 0.12
     tracking_preferred_frontal_yaw_deg: float = 12.0
     tracking_profile_recenter_yaw_gain: float = 0.60
-    tracking_head_yaw_turn_gain: float = 0.33
+    tracking_head_yaw_turn_gain: float = 0.333
     takeoff_extra_rise_cm: int = 30
 
     @classmethod
