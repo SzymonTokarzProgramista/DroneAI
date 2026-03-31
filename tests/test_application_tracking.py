@@ -93,6 +93,7 @@ def make_config(**overrides: object) -> AppConfig:
         "tracking_max_lateral_speed": 25,
         "tracking_min_vertical_speed": 8,
         "tracking_orbit_yaw_assist_px_per_deg": 0.0,
+        "tracking_head_yaw_turn_gain": 0.28,
     }
     values.update(overrides)
     return AppConfig(**values)

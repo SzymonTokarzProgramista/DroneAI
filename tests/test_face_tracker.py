@@ -36,6 +36,7 @@ def make_config(**overrides: object) -> AppConfig:
         "tracking_reacquire_min_score": 0.12,
         "tracking_preferred_frontal_yaw_deg": 14.0,
         "tracking_profile_recenter_yaw_gain": 0.45,
+        "tracking_head_yaw_turn_gain": 0.28,
     }
     values.update(overrides)
     return AppConfig(**values)
@@ -85,6 +86,14 @@ class FaceTrackerTests(unittest.TestCase):
 
         self.assertEqual(command.left_right_velocity, -16)
 
+    def test_positive_head_yaw_also_turns_drone_left(self) -> None:
+        tracker = FaceTracker(make_config(tracking_min_lateral_speed=0, tracking_head_yaw_turn_gain=0.3))
+        face = make_face(head_yaw_deg=16.0)
+
+        command = tracker.build_command_full(640, 480, face)
+
+        self.assertLess(command.yaw_velocity, 0)
+
     def test_profile_recenter_prefers_yaw_over_lateral_motion(self) -> None:
         tracker = FaceTracker(make_config(tracking_min_lateral_speed=0))
         face = make_face(head_yaw_deg=30.0)
@@ -126,7 +135,7 @@ class FaceTrackerTests(unittest.TestCase):
 
         command = tracker.build_command_full(640, 480, face)
 
-        self.assertEqual(command.yaw_velocity, 4)
+        self.assertEqual(command.yaw_velocity, 1)
 
     def test_recent_nearby_unknown_face_is_not_reacquired_when_confidence_is_low(self) -> None:
         tracker = FaceTracker(make_config())

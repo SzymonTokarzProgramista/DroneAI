@@ -45,8 +45,9 @@ class AppConfig:
     tracking_reacquire_match_max_distance_px: float = 220.0
     tracking_reacquire_min_confidence: float = 0.9
     tracking_reacquire_min_score: float = 0.12
-    tracking_preferred_frontal_yaw_deg: float = 14.0
-    tracking_profile_recenter_yaw_gain: float = 0.45
+    tracking_preferred_frontal_yaw_deg: float = 12.0
+    tracking_profile_recenter_yaw_gain: float = 0.60
+    tracking_head_yaw_turn_gain: float = 0.33
     takeoff_extra_rise_cm: int = 30
 
     @classmethod
@@ -95,9 +96,9 @@ class AppConfig:
             detection_nms_threshold=float(
                 os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.4")
             ),
-            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Kuba"),
+            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Oskar"),
             tracking_target_distance_m=float(
-                os.environ.get("DRONE_AI_TRACKING_TARGET_DISTANCE_M", "0.3")
+                os.environ.get("DRONE_AI_TRACKING_TARGET_DISTANCE_M", "0.6")
             ),
             tracking_face_width_m=float(
                 os.environ.get("DRONE_AI_TRACKING_FACE_WIDTH_M", "0.16")
@@ -173,10 +174,13 @@ class AppConfig:
                 os.environ.get("DRONE_AI_TRACKING_REACQUIRE_MIN_SCORE", "0.12")
             ),
             tracking_preferred_frontal_yaw_deg=float(
-                os.environ.get("DRONE_AI_TRACKING_PREFERRED_FRONTAL_YAW_DEG", "14")
+                os.environ.get("DRONE_AI_TRACKING_PREFERRED_FRONTAL_YAW_DEG", "12")
             ),
             tracking_profile_recenter_yaw_gain=float(
-                os.environ.get("DRONE_AI_TRACKING_PROFILE_RECENTER_YAW_GAIN", "0.45")
+                os.environ.get("DRONE_AI_TRACKING_PROFILE_RECENTER_YAW_GAIN", "0.60")
+            ),
+            tracking_head_yaw_turn_gain=float(
+                os.environ.get("DRONE_AI_TRACKING_HEAD_YAW_TURN_GAIN", "0.38")
             ),
             takeoff_extra_rise_cm=int(
                 os.environ.get("DRONE_AI_TAKEOFF_EXTRA_RISE_CM", "30")

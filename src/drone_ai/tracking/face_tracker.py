@@ -51,6 +51,7 @@ class FaceTracker:
         self._reacquire_min_score = config.tracking_reacquire_min_score
         self._preferred_frontal_yaw_deg = config.tracking_preferred_frontal_yaw_deg
         self._profile_recenter_yaw_gain = config.tracking_profile_recenter_yaw_gain
+        self._head_yaw_turn_gain = config.tracking_head_yaw_turn_gain
         self._search_direction = 1
         self._last_seen_at = 0.0
         self._last_seen_box: BoundingBox | None = None
@@ -118,9 +119,12 @@ class FaceTracker:
                 self._max_yaw_speed,
             )
 
-        if profile_recenter_active and motion_head_yaw_deg is not None:
+        if motion_head_yaw_deg is not None and abs(motion_head_yaw_deg) > self._head_yaw_deadband_deg:
+            yaw_turn_gain = self._head_yaw_turn_gain
+            if profile_recenter_active:
+                yaw_turn_gain += self._profile_recenter_yaw_gain
             yaw_velocity += self._clamp_speed(
-                motion_head_yaw_deg * self._profile_recenter_yaw_gain,
+                motion_head_yaw_deg * yaw_turn_gain,
                 self._max_yaw_speed,
             )
             yaw_velocity = self._clamp_speed(yaw_velocity, self._max_yaw_speed)
