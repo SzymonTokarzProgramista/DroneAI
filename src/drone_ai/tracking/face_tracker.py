@@ -103,22 +103,24 @@ class FaceTracker:
         desired_face_center_x = frame_center_x
         profile_recenter_active = False
         head_yaw_error_deg = None
+        motion_head_yaw_deg = None
         if self._head_pose_enabled and target_face.head_pose_ready and target_face.head_yaw_deg is not None:
             head_yaw_error_deg = target_face.head_yaw_deg
-            desired_face_center_x += head_yaw_error_deg * self._orbit_yaw_assist_px_per_deg
-            profile_recenter_active = abs(head_yaw_error_deg) >= self._preferred_frontal_yaw_deg
+            motion_head_yaw_deg = -head_yaw_error_deg
+            desired_face_center_x += motion_head_yaw_deg * self._orbit_yaw_assist_px_per_deg
+            profile_recenter_active = abs(motion_head_yaw_deg) >= self._preferred_frontal_yaw_deg
 
         horizontal_error_px = face_center_x - desired_face_center_x
-        self._update_search_direction(horizontal_error_px, head_yaw_error_deg)
+        self._update_search_direction(horizontal_error_px, motion_head_yaw_deg)
         if abs(horizontal_error_px) > self._yaw_deadband_px:
             yaw_velocity = self._clamp_speed(
                 horizontal_error_px * self._yaw_gain,
                 self._max_yaw_speed,
             )
 
-        if profile_recenter_active and head_yaw_error_deg is not None:
+        if profile_recenter_active and motion_head_yaw_deg is not None:
             yaw_velocity += self._clamp_speed(
-                head_yaw_error_deg * self._profile_recenter_yaw_gain,
+                motion_head_yaw_deg * self._profile_recenter_yaw_gain,
                 self._max_yaw_speed,
             )
             yaw_velocity = self._clamp_speed(yaw_velocity, self._max_yaw_speed)
@@ -136,11 +138,11 @@ class FaceTracker:
         if (
             self._head_pose_enabled
             and target_face.head_pose_ready
-            and head_yaw_error_deg is not None
-            and abs(head_yaw_error_deg) > self._head_yaw_deadband_deg
+            and motion_head_yaw_deg is not None
+            and abs(motion_head_yaw_deg) > self._head_yaw_deadband_deg
         ):
             left_right_velocity = self._clamp_speed_with_minimum(
-                head_yaw_error_deg * self._lateral_gain,
+                motion_head_yaw_deg * self._lateral_gain,
                 self._min_lateral_speed,
                 self._max_lateral_speed,
             )

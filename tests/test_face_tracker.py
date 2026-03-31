@@ -77,13 +77,13 @@ class FaceTrackerTests(unittest.TestCase):
 
         self.assertEqual(command.left_right_velocity, 0)
 
-    def test_positive_head_yaw_moves_drone_right_for_small_angle(self) -> None:
+    def test_positive_head_yaw_moves_drone_left_for_small_angle(self) -> None:
         tracker = FaceTracker(make_config(tracking_min_lateral_speed=0))
         face = make_face(head_yaw_deg=16.0)
 
         command = tracker.build_command_full(640, 480, face)
 
-        self.assertEqual(command.left_right_velocity, 16)
+        self.assertEqual(command.left_right_velocity, -16)
 
     def test_profile_recenter_prefers_yaw_over_lateral_motion(self) -> None:
         tracker = FaceTracker(make_config(tracking_min_lateral_speed=0))
@@ -91,8 +91,8 @@ class FaceTrackerTests(unittest.TestCase):
 
         command = tracker.build_command_full(640, 480, face)
 
-        self.assertGreater(command.left_right_velocity, 0)
-        self.assertGreater(command.yaw_velocity, 0)
+        self.assertLess(command.left_right_velocity, 0)
+        self.assertLess(command.yaw_velocity, 0)
 
     def test_deadband_prevents_small_orbit_adjustments(self) -> None:
         tracker = FaceTracker(make_config(tracking_head_yaw_deadband_deg=15.0))
@@ -126,7 +126,7 @@ class FaceTrackerTests(unittest.TestCase):
 
         command = tracker.build_command_full(640, 480, face)
 
-        self.assertEqual(command.yaw_velocity, -4)
+        self.assertEqual(command.yaw_velocity, 4)
 
     def test_recent_nearby_unknown_face_is_not_reacquired_when_confidence_is_low(self) -> None:
         tracker = FaceTracker(make_config())

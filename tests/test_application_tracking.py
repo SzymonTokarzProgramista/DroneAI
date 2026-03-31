@@ -134,8 +134,8 @@ class ApplicationTrackingTests(unittest.TestCase):
         self.assertEqual(tracked_faces[0].head_yaw_deg, 24.0)
         self.assertEqual(tracked_faces[0].head_pose_debug, "dummy-debug")
         self.assertEqual(tracked_faces[0].head_mesh_points, ((10, 10), (12, 12)))
-        self.assertGreater(application._controller.calls[0][0], 0)
-        self.assertGreater(application._controller.calls[0][3], 0)
+        self.assertLess(application._controller.calls[0][0], 0)
+        self.assertLess(application._controller.calls[0][3], 0)
         self.assertEqual(application._head_pose.calls, 1)
 
 
