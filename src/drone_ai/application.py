@@ -74,6 +74,8 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m: float | None = None
+        self._tracking_search_active = False
+        self._tracking_search_direction: str | None = None
         self._show_head_mesh = False
         self._frame_lock = threading.RLock()
         self._stop_event = threading.Event()
@@ -99,6 +101,8 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m = None
+        self._tracking_search_active = False
+        self._tracking_search_direction = None
         self._stop_event.set()
         if self._processing_thread is not None:
             self._processing_thread.join(timeout=5)
@@ -112,6 +116,8 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m = None
+        self._tracking_search_active = False
+        self._tracking_search_direction = None
         return self._controller.land()
 
     def enable_tracking(self) -> None:
@@ -121,6 +127,8 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m = None
+        self._tracking_search_active = False
+        self._tracking_search_direction = None
         self._controller.stop_motion()
 
     def start_api(self, host: str, port: int) -> None:
@@ -180,6 +188,8 @@ class DroneApplication:
             tracking_target_name=self._tracker.target_name,
             tracking_target_visible=self._tracking_target_visible,
             tracking_target_distance_m=self._tracking_target_distance_m,
+            tracking_search_active=self._tracking_search_active,
+            tracking_search_direction=self._tracking_search_direction,
             api_url=self._api_url,
         )
 
@@ -326,6 +336,8 @@ class DroneApplication:
             except Exception:
                 self._tracking_target_visible = False
                 self._tracking_target_distance_m = None
+                self._tracking_search_active = False
+                self._tracking_search_direction = None
                 self._controller.stop_motion()
                 time.sleep(0.05)
                 continue
@@ -462,6 +474,8 @@ class DroneApplication:
 
         self._tracking_target_visible = command.target_visible
         self._tracking_target_distance_m = command.estimated_distance_m
+        self._tracking_search_active = command.search_active
+        self._tracking_search_direction = command.search_direction
 
         if self._tracking_enabled:
             self._controller.send_rc_control(

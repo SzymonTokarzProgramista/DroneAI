@@ -113,6 +113,8 @@ class ApplicationTrackingTests(unittest.TestCase):
         application._tracking_enabled = True
         application._tracking_target_visible = False
         application._tracking_target_distance_m = None
+        application._tracking_search_active = False
+        application._tracking_search_direction = None
         application._show_head_mesh = False
         application._frame_lock = RLock()
         return application
@@ -203,6 +205,33 @@ class ApplicationTrackingTests(unittest.TestCase):
         self.assertFalse(tracked_faces[0].is_tracking_target)
         self.assertEqual(application._head_pose.calls, 0)
         self.assertEqual(application._controller.calls[0][0], 0)
+
+    def test_apply_tracking_continues_search_rotation_after_target_loss(self) -> None:
+        application = self._make_application()
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        application._apply_tracking(
+            frame,
+            [
+                RecognizedFace(
+                    bounding_box=BoundingBox(x=430, y=130, width=120, height=140),
+                    confidence=0.99,
+                    label="Maks",
+                    similarity=0.91,
+                    embedding_ready=True,
+                )
+            ],
+        )
+
+        tracked_faces = application._apply_tracking(frame, [])
+
+        self.assertEqual(tracked_faces, [])
+        self.assertFalse(application._tracking_target_visible)
+        self.assertTrue(application._tracking_search_active)
+        self.assertEqual(application._tracking_search_direction, "right")
+        self.assertEqual(application._controller.calls[-1][0], 0)
+        self.assertEqual(application._controller.calls[-1][1], 0)
+        self.assertEqual(application._controller.calls[-1][2], 0)
+        self.assertGreater(application._controller.calls[-1][3], 0)
 
     def test_apply_tracking_shows_mesh_for_largest_face_when_overlay_is_enabled(self) -> None:
         application = self._make_application()

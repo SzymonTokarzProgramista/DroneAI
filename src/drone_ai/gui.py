@@ -224,6 +224,8 @@ class DroneAIGUI:
                     f"Tracking: {status.tracking_enabled}",
                     f"Target: {status.tracking_target_name or '--'}",
                     f"Target visible: {status.tracking_target_visible}",
+                    f"Searching: {status.tracking_search_active}",
+                    f"Search direction: {status.tracking_search_direction or '--'}",
                     f"Target distance: "
                     f"{status.tracking_target_distance_m:.2f}m"
                     if status.tracking_target_distance_m is not None

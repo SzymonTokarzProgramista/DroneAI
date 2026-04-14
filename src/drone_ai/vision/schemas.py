@@ -65,4 +65,6 @@ class ApiStatus:
     tracking_target_name: str | None = None
     tracking_target_visible: bool = False
     tracking_target_distance_m: float | None = None
+    tracking_search_active: bool = False
+    tracking_search_direction: Literal["left", "right"] | None = None
     api_url: str | None = None

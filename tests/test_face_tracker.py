@@ -31,6 +31,7 @@ def make_config(**overrides: object) -> AppConfig:
         "tracking_yaw_gain": 0.1,
         "tracking_orbit_yaw_assist_px_per_deg": 0.0,
         "tracking_reacquire_timeout_seconds": 1.8,
+        "tracking_loss_search_timeout_seconds": 3.0,
         "tracking_search_yaw_speed": 18,
         "tracking_reacquire_match_max_distance_px": 220.0,
         "tracking_reacquire_min_confidence": 0.9,
@@ -212,16 +213,70 @@ class FaceTrackerTests(unittest.TestCase):
 
         self.assertEqual(command.yaw_velocity, 22)
         self.assertFalse(command.target_visible)
+        self.assertTrue(command.search_active)
+        self.assertEqual(command.search_direction, "right")
 
-    def test_stale_history_stops_search(self) -> None:
-        tracker = FaceTracker(make_config(tracking_reacquire_timeout_seconds=0.05))
+    def test_recent_loss_search_turns_left_when_target_was_left_of_center(self) -> None:
+        tracker = FaceTracker(make_config(tracking_search_yaw_speed=20))
+        tracker.build_command_full(
+            640,
+            480,
+            make_face(bounding_box=BoundingBox(x=60, y=140, width=100, height=120)),
+        )
+
+        command = tracker.build_command_full(640, 480, None)
+
+        self.assertEqual(command.yaw_velocity, -20)
+        self.assertTrue(command.search_active)
+        self.assertEqual(command.search_direction, "left")
+
+    def test_recent_loss_uses_head_yaw_when_face_was_near_center(self) -> None:
+        tracker = FaceTracker(make_config(tracking_search_yaw_speed=19))
+        tracker.build_command_full(
+            640,
+            480,
+            make_face(
+                bounding_box=BoundingBox(x=270, y=140, width=100, height=120),
+                head_yaw_deg=22.0,
+            ),
+        )
+
+        command = tracker.build_command_full(640, 480, None)
+
+        self.assertEqual(command.yaw_velocity, -19)
+        self.assertTrue(command.search_active)
+        self.assertEqual(command.search_direction, "left")
+
+    def test_active_search_only_uses_yaw_axis(self) -> None:
+        tracker = FaceTracker(make_config(tracking_search_yaw_speed=21))
+        tracker.build_command_full(
+            640,
+            480,
+            make_face(bounding_box=BoundingBox(x=420, y=140, width=100, height=120)),
+        )
+
+        command = tracker.build_command_full(640, 480, None)
+
+        self.assertEqual(command.left_right_velocity, 0)
+        self.assertEqual(command.forward_backward_velocity, 0)
+        self.assertEqual(command.up_down_velocity, 0)
+        self.assertNotEqual(command.yaw_velocity, 0)
+
+    def test_stale_history_keeps_searching_after_target_loss(self) -> None:
+        tracker = FaceTracker(
+            make_config(
+                tracking_reacquire_timeout_seconds=0.05,
+                tracking_loss_search_timeout_seconds=0.05,
+            )
+        )
         tracker.select_target([make_face(label="Maks")])
         time.sleep(0.06)
 
         command = tracker.build_command_full(640, 480, None)
 
-        self.assertEqual(command.yaw_velocity, 0)
+        self.assertNotEqual(command.yaw_velocity, 0)
         self.assertFalse(command.target_visible)
+        self.assertTrue(command.search_active)
 
 
 if __name__ == "__main__":

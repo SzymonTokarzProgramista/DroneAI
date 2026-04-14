@@ -43,7 +43,8 @@ class AppConfig:
     tracking_head_pose_min_confidence: float = 0.5
     tracking_orbit_yaw_assist_px_per_deg: float = 3.5
     tracking_reacquire_timeout_seconds: float = 1.8
-    tracking_search_yaw_speed: int = 18
+    tracking_loss_search_timeout_seconds: float = 3.0
+    tracking_search_yaw_speed: int = 28
     tracking_reacquire_match_max_distance_px: float = 220.0
     tracking_reacquire_min_confidence: float = 0.9
     tracking_reacquire_min_score: float = 0.12
@@ -169,8 +170,11 @@ class AppConfig:
             tracking_reacquire_timeout_seconds=float(
                 os.environ.get("DRONE_AI_TRACKING_REACQUIRE_TIMEOUT_SECONDS", "1.8")
             ),
+            tracking_loss_search_timeout_seconds=float(
+                os.environ.get("DRONE_AI_TRACKING_LOSS_SEARCH_TIMEOUT_SECONDS", "3.0")
+            ),
             tracking_search_yaw_speed=int(
-                os.environ.get("DRONE_AI_TRACKING_SEARCH_YAW_SPEED", "18")
+                os.environ.get("DRONE_AI_TRACKING_SEARCH_YAW_SPEED", "28")
             ),
             tracking_reacquire_match_max_distance_px=float(
                 os.environ.get("DRONE_AI_TRACKING_REACQUIRE_MATCH_MAX_DISTANCE_PX", "220")

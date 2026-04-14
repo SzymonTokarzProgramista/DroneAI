@@ -18,6 +18,8 @@ class TrackingCommand:
     yaw_velocity: int
     estimated_distance_m: float | None
     target_visible: bool
+    search_active: bool = False
+    search_direction: str | None = None
 
 
 class FaceTracker:
@@ -160,6 +162,8 @@ class FaceTracker:
             yaw_velocity=yaw_velocity,
             estimated_distance_m=estimated_distance_m,
             target_visible=True,
+            search_active=False,
+            search_direction=None,
         )
 
     def build_command_full(
@@ -191,6 +195,8 @@ class FaceTracker:
             yaw_velocity=command.yaw_velocity,
             estimated_distance_m=command.estimated_distance_m,
             target_visible=command.target_visible,
+            search_active=command.search_active,
+            search_direction=command.search_direction,
         )
 
     def _resolve_tracking_anchor_y(self, target_face: RecognizedFace) -> float:
@@ -248,8 +254,9 @@ class FaceTracker:
         return (time.monotonic() - self._last_seen_at) <= self._reacquire_timeout_seconds
 
     def _build_search_command(self) -> TrackingCommand | None:
-        if not self._can_reacquire() or self._search_yaw_speed <= 0:
+        if self._last_seen_at <= 0.0 or self._search_yaw_speed <= 0:
             return None
+        search_direction = "right" if self._search_direction > 0 else "left"
         return TrackingCommand(
             left_right_velocity=0,
             forward_backward_velocity=0,
@@ -257,6 +264,8 @@ class FaceTracker:
             yaw_velocity=self._search_direction * self._search_yaw_speed,
             estimated_distance_m=None,
             target_visible=False,
+            search_active=True,
+            search_direction=search_direction,
         )
 
     def _update_search_direction(
