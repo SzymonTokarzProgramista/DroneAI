@@ -57,9 +57,10 @@ class FaceOverlayRenderer:
             mesh_status = "ok" if face.head_mesh_ready else "--"
             pose_status = face.head_pose_failure_reason or "ok"
             debug_status = face.head_pose_debug or "--"
+            tracking_anchor_source = face.tracking_anchor_source or "--"
             tracking_suffix = " | TRACK" if face.is_tracking_target else ""
             label = (
-                f"{face.label} | det={face.confidence:.2f} | sim={similarity} | dist={distance} | yaw={head_yaw} | mesh={mesh_status} | pose={pose_status} | dbg={debug_status}"
+                f"{face.label} | det={face.confidence:.2f} | sim={similarity} | dist={distance} | yaw={head_yaw} | mesh={mesh_status} | pose={pose_status} | vsrc={tracking_anchor_source} | dbg={debug_status}"
                 f"{tracking_suffix}"
             )
             text_origin = (box.x, max(box.y - 10, 20))

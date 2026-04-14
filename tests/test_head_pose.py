@@ -88,6 +88,27 @@ class HeadPoseEstimatorTests(unittest.TestCase):
 
         self.assertEqual(confidence, 1.0)
 
+    def test_tracking_anchor_y_uses_eye_line(self) -> None:
+        estimator = MediaPipeHeadPoseEstimator(
+            enabled=False,
+            min_confidence=0.5,
+            model_path=Path("models/face_landmarker.task"),
+        )
+        landmarks = [
+            type("Landmark", (), {"x": 0.0, "y": 0.0})()
+            for _ in range(300)
+        ]
+        landmarks[33] = type("Landmark", (), {"x": 0.18, "y": 0.30})()
+        landmarks[263] = type("Landmark", (), {"x": 0.82, "y": 0.34})()
+
+        anchor_y = estimator._estimate_tracking_anchor_y(
+            landmarks,
+            roi_height=200,
+            offset_y=40,
+        )
+
+        self.assertEqual(anchor_y, 104.0)
+
 
 if __name__ == "__main__":
     unittest.main()

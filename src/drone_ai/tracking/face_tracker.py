@@ -30,6 +30,8 @@ class FaceTracker:
         self._camera_hfov_deg = config.tracking_camera_hfov_deg
         self._yaw_deadband_px = config.tracking_yaw_deadband_px
         self._vertical_deadband_px = config.tracking_vertical_deadband_px
+        self._vertical_target_y_ratio = config.tracking_vertical_target_y_ratio
+        self._bbox_anchor_y_ratio = config.tracking_bbox_anchor_y_ratio
         self._distance_deadband_m = config.tracking_distance_deadband_m
         self._forward_gain = config.tracking_forward_gain
         self._yaw_gain = config.tracking_yaw_gain
@@ -170,9 +172,9 @@ class FaceTracker:
         if target_face is None:
             return command
 
-        face_center_y = target_face.bounding_box.y + target_face.bounding_box.height / 2.0
-        desired_face_center_y = frame_height * 0.42
-        vertical_error_px = desired_face_center_y - face_center_y
+        tracking_anchor_y = self._resolve_tracking_anchor_y(target_face)
+        desired_face_center_y = frame_height * self._vertical_target_y_ratio
+        vertical_error_px = desired_face_center_y - tracking_anchor_y
 
         up_down_velocity = 0
         if abs(vertical_error_px) > self._vertical_deadband_px:
@@ -189,6 +191,13 @@ class FaceTracker:
             yaw_velocity=command.yaw_velocity,
             estimated_distance_m=command.estimated_distance_m,
             target_visible=command.target_visible,
+        )
+
+    def _resolve_tracking_anchor_y(self, target_face: RecognizedFace) -> float:
+        if target_face.tracking_anchor_y_px is not None:
+            return target_face.tracking_anchor_y_px
+        return target_face.bounding_box.y + (
+            target_face.bounding_box.height * self._bbox_anchor_y_ratio
         )
 
     def _select_reacquire_candidate(self, faces: list[RecognizedFace]) -> RecognizedFace | None:

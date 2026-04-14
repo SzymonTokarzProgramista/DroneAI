@@ -52,12 +52,14 @@ class _DummyHeadPose:
         mesh_ready: bool = True,
         pose_ready: bool = True,
         failure_reason: str | None = None,
+        tracking_anchor_y_px: float | None = 118.0,
     ) -> None:
         self.yaw_deg = yaw_deg
         self.pitch_deg = pitch_deg
         self.mesh_ready = mesh_ready
         self.pose_ready = pose_ready
         self.failure_reason = failure_reason
+        self.tracking_anchor_y_px = tracking_anchor_y_px
         self.calls = 0
 
     def estimate(self, frame_bgr: np.ndarray, face_box: BoundingBox):
@@ -73,6 +75,7 @@ class _DummyHeadPose:
                 "failure_reason": self.failure_reason,
                 "debug_message": "dummy-debug",
                 "yaw_source": "mesh_2d" if self.failure_reason else "pnp",
+                "tracking_anchor_y_px": self.tracking_anchor_y_px,
                 "mesh_points": ((10, 10), (12, 12)),
             },
         )()
@@ -86,6 +89,7 @@ def make_config(**overrides: object) -> AppConfig:
         "database_path": Path("data/drone_ai.sqlite3"),
         "embedder_model_path": Path("models/face_recognition_sface_2021dec_int8.onnx"),
         "detector_model_path": Path("models/blaze_face_short_range.tflite"),
+        "tracking_target_name": "Maks",
         "tracking_head_pose_enabled": True,
         "tracking_head_yaw_deadband_deg": 10.0,
         "tracking_lateral_gain": 1.0,
@@ -135,6 +139,8 @@ class ApplicationTrackingTests(unittest.TestCase):
         self.assertEqual(tracked_faces[0].head_yaw_deg, 24.0)
         self.assertEqual(tracked_faces[0].head_pose_debug, "dummy-debug")
         self.assertEqual(tracked_faces[0].head_mesh_points, ((10, 10), (12, 12)))
+        self.assertEqual(tracked_faces[0].tracking_anchor_y_px, 118.0)
+        self.assertEqual(tracked_faces[0].tracking_anchor_source, "mesh")
         self.assertLess(application._controller.calls[0][0], 0)
         self.assertLess(application._controller.calls[0][3], 0)
         self.assertEqual(application._head_pose.calls, 1)
@@ -142,6 +148,7 @@ class ApplicationTrackingTests(unittest.TestCase):
 
     def test_apply_tracking_adjusts_height_when_face_is_too_low(self) -> None:
         application = self._make_application()
+        application._head_pose = _DummyHeadPose(tracking_anchor_y_px=None)
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         faces = [
             RecognizedFace(
@@ -157,6 +164,26 @@ class ApplicationTrackingTests(unittest.TestCase):
 
         self.assertNotEqual(application._controller.calls[0][2], 0)
         self.assertGreaterEqual(abs(application._controller.calls[0][2]), 8)
+
+    def test_apply_tracking_falls_back_to_bbox_anchor_when_mesh_anchor_missing(self) -> None:
+        application = self._make_application()
+        application._head_pose = _DummyHeadPose(tracking_anchor_y_px=None)
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        faces = [
+            RecognizedFace(
+                bounding_box=BoundingBox(x=250, y=270, width=120, height=140),
+                confidence=0.99,
+                label="Maks",
+                similarity=0.91,
+                embedding_ready=True,
+            )
+        ]
+
+        tracked_faces = application._apply_tracking(frame, faces)
+
+        self.assertEqual(tracked_faces[0].tracking_anchor_source, "bbox")
+        self.assertAlmostEqual(tracked_faces[0].tracking_anchor_y_px, 323.2)
+        self.assertNotEqual(application._controller.calls[0][2], 0)
 
     def test_apply_tracking_skips_head_pose_without_target(self) -> None:
         application = self._make_application()

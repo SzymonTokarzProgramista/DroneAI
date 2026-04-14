@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
@@ -40,6 +41,8 @@ class RecognizedFace:
     head_pitch_deg: float | None = None
     head_pose_failure_reason: str | None = None
     head_pose_debug: str | None = None
+    tracking_anchor_y_px: float | None = None
+    tracking_anchor_source: Literal["mesh", "bbox"] | None = None
     head_mesh_points: tuple[tuple[int, int], ...] = field(default_factory=tuple)
 
 

@@ -14,17 +14,19 @@ class AppConfig:
     detector_model_path: Path
     face_landmarker_model_path: Path = Path("models/face_landmarker.task")
     preview_window_name: str = "DroneAI Tello Front Camera"
-    recognition_threshold: float = 0.46
+    recognition_threshold: float = 0.6
     recognition_margin_threshold: float = 0.03
-    min_detection_confidence: float = 0.9
+    min_detection_confidence: float = 0.97
     recovery_detection_confidence: float = 0.62
-    detection_nms_threshold: float = 0.25
-    tracking_target_name: str = "Maks"
+    detection_nms_threshold: float = 0.5
+    tracking_target_name: str = "Maksiu"
     tracking_target_distance_m: float = 0.3
     tracking_face_width_m: float = 0.16
     tracking_camera_hfov_deg: float = 82.6
     tracking_yaw_deadband_px: float = 60.0
     tracking_vertical_deadband_px: float = 45.0
+    tracking_vertical_target_y_ratio: float = 0.42
+    tracking_bbox_anchor_y_ratio: float = 0.38
     tracking_distance_deadband_m: float = 0.08
     tracking_forward_gain: float = 90.0
     tracking_yaw_gain: float = 0.12
@@ -82,21 +84,21 @@ class AppConfig:
                 "DRONE_AI_PREVIEW_WINDOW", "DroneAI Tello Front Camera"
             ),
             recognition_threshold=float(
-                os.environ.get("DRONE_AI_RECOGNITION_THRESHOLD", "0.6")
+                os.environ.get("DRONE_AI_RECOGNITION_THRESHOLD", "0.5")
             ),
             recognition_margin_threshold=float(
                 os.environ.get("DRONE_AI_RECOGNITION_MARGIN_THRESHOLD", "0.03")
             ),
             min_detection_confidence=float(
-                os.environ.get("DRONE_AI_MIN_DETECTION_CONFIDENCE", "0.9")
+                os.environ.get("DRONE_AI_MIN_DETECTION_CONFIDENCE", "0.97")
             ),
             recovery_detection_confidence=float(
                 os.environ.get("DRONE_AI_RECOVERY_DETECTION_CONFIDENCE", "0.62")
             ),
             detection_nms_threshold=float(
-                os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.4")
+                os.environ.get("DRONE_AI_DETECTION_NMS_THRESHOLD", "0.6")
             ),
-            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Oskar"),
+            tracking_target_name=os.environ.get("DRONE_AI_TRACKING_TARGET_NAME", "Maksiu"),
             tracking_target_distance_m=float(
                 os.environ.get("DRONE_AI_TRACKING_TARGET_DISTANCE_M", "0.6")
             ),
@@ -111,6 +113,12 @@ class AppConfig:
             ),
             tracking_vertical_deadband_px=float(
                 os.environ.get("DRONE_AI_TRACKING_VERTICAL_DEADBAND_PX", "45")
+            ),
+            tracking_vertical_target_y_ratio=float(
+                os.environ.get("DRONE_AI_TRACKING_VERTICAL_TARGET_Y_RATIO", "0.42")
+            ),
+            tracking_bbox_anchor_y_ratio=float(
+                os.environ.get("DRONE_AI_TRACKING_BBOX_ANCHOR_Y_RATIO", "0.38")
             ),
             tracking_distance_deadband_m=float(
                 os.environ.get("DRONE_AI_TRACKING_DISTANCE_DEADBAND_M", "0.08")

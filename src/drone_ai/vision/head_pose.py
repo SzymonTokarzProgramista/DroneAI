@@ -39,6 +39,7 @@ class HeadPoseEstimate:
     failure_reason: str | None
     debug_message: str | None
     yaw_source: str | None
+    tracking_anchor_y_px: float | None
     mesh_points: tuple[tuple[int, int], ...]
 
 
@@ -104,6 +105,7 @@ class MediaPipeHeadPoseEstimator:
                 failure_reason="mesh_unavailable",
                 debug_message=self._init_debug,
                 yaw_source=None,
+                tracking_anchor_y_px=None,
                 mesh_points=(),
             )
 
@@ -118,6 +120,7 @@ class MediaPipeHeadPoseEstimator:
                 failure_reason="empty_roi",
                 debug_message=f"empty_roi box={face_box.width}x{face_box.height}",
                 yaw_source=None,
+                tracking_anchor_y_px=None,
                 mesh_points=(),
             )
         roi, offset_x, offset_y = roi_info
@@ -136,6 +139,7 @@ class MediaPipeHeadPoseEstimator:
                 failure_reason="mesh_process_failed",
                 debug_message=f"{type(exc).__name__}: {exc}",
                 yaw_source=None,
+                tracking_anchor_y_px=None,
                 mesh_points=(),
             )
         landmarks_list = getattr(result, "face_landmarks", None)
@@ -149,6 +153,7 @@ class MediaPipeHeadPoseEstimator:
                 failure_reason="no_landmarks",
                 debug_message=f"roi={roi.shape[1]}x{roi.shape[0]}",
                 yaw_source=None,
+                tracking_anchor_y_px=None,
                 mesh_points=(),
             )
 
@@ -163,6 +168,7 @@ class MediaPipeHeadPoseEstimator:
                 failure_reason="invalid_landmarks",
                 debug_message=f"type={type(landmarks_list[0]).__name__}",
                 yaw_source=None,
+                tracking_anchor_y_px=None,
                 mesh_points=(),
             )
 
@@ -177,6 +183,7 @@ class MediaPipeHeadPoseEstimator:
                 failure_reason="low_confidence",
                 debug_message=f"confidence={confidence:.3f} < min={self._min_confidence:.3f}",
                 yaw_source=None,
+                tracking_anchor_y_px=None,
                 mesh_points=(),
             )
 
@@ -204,6 +211,11 @@ class MediaPipeHeadPoseEstimator:
                 int(round(offset_y + (landmark.y * roi_height))),
             )
             for landmark in landmarks
+        )
+        tracking_anchor_y_px = self._estimate_tracking_anchor_y(
+            landmarks,
+            roi_height=roi_height,
+            offset_y=offset_y,
         )
 
         rotation = self._solve_pose(
@@ -236,6 +248,7 @@ class MediaPipeHeadPoseEstimator:
             failure_reason=failure_reason,
             debug_message=debug_message,
             yaw_source=yaw_source if yaw_deg is not None else None,
+            tracking_anchor_y_px=tracking_anchor_y_px,
             mesh_points=mesh_points,
         )
 
@@ -372,3 +385,22 @@ class MediaPipeHeadPoseEstimator:
         balance = (right_dist - left_dist) / baseline
         # Practical, bounded 2D fallback when solvePnP is unstable.
         return float(np.clip(balance * 90.0, -45.0, 45.0))
+
+    def _estimate_tracking_anchor_y(
+        self,
+        landmarks: list[Any],
+        *,
+        roi_height: int,
+        offset_y: int,
+    ) -> float | None:
+        if roi_height <= 0:
+            return None
+
+        try:
+            left_eye = landmarks[self._LANDMARK_INDEX["left_eye_outer"]]
+            right_eye = landmarks[self._LANDMARK_INDEX["right_eye_outer"]]
+        except (IndexError, KeyError):
+            return None
+
+        eye_line_y = (float(left_eye.y) + float(right_eye.y)) / 2.0
+        return float(offset_y + (eye_line_y * roi_height))

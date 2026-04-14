@@ -345,13 +345,22 @@ class DroneApplication:
             head_pose = self._head_pose.estimate(frame_bgr, mesh_preview_face.bounding_box)
 
         enriched_target_face = target_face
+        fallback_tracking_anchor_y = None
+        fallback_tracking_anchor_source = None
+        if target_face is not None:
+            fallback_tracking_anchor_y = self._bbox_tracking_anchor_y(target_face.bounding_box)
+            fallback_tracking_anchor_source = "bbox"
         if (
             target_face is not None
             and mesh_preview_face is target_face
             and head_pose is not None
-            and head_pose.pose_ready
-            and head_pose.yaw_deg is not None
         ):
+            tracking_anchor_y = head_pose.tracking_anchor_y_px
+            tracking_anchor_source = (
+                "mesh" if tracking_anchor_y is not None and head_pose.mesh_ready else fallback_tracking_anchor_source
+            )
+            if tracking_anchor_y is None:
+                tracking_anchor_y = fallback_tracking_anchor_y
             enriched_target_face = RecognizedFace(
                 bounding_box=target_face.bounding_box,
                 confidence=target_face.confidence,
@@ -366,7 +375,28 @@ class DroneApplication:
                 head_pitch_deg=head_pose.pitch_deg,
                 head_pose_failure_reason=head_pose.failure_reason,
                 head_pose_debug=head_pose.debug_message,
+                tracking_anchor_y_px=tracking_anchor_y,
+                tracking_anchor_source=tracking_anchor_source,
                 head_mesh_points=head_pose.mesh_points,
+            )
+        elif target_face is not None:
+            enriched_target_face = RecognizedFace(
+                bounding_box=target_face.bounding_box,
+                confidence=target_face.confidence,
+                label=target_face.label,
+                similarity=target_face.similarity,
+                embedding_ready=target_face.embedding_ready,
+                estimated_distance_m=target_face.estimated_distance_m,
+                is_tracking_target=target_face.is_tracking_target,
+                head_mesh_ready=target_face.head_mesh_ready,
+                head_pose_ready=target_face.head_pose_ready,
+                head_yaw_deg=target_face.head_yaw_deg,
+                head_pitch_deg=target_face.head_pitch_deg,
+                head_pose_failure_reason=target_face.head_pose_failure_reason,
+                head_pose_debug=target_face.head_pose_debug,
+                tracking_anchor_y_px=fallback_tracking_anchor_y,
+                tracking_anchor_source=fallback_tracking_anchor_source,
+                head_mesh_points=target_face.head_mesh_points,
             )
 
         command = self._tracker.build_command_full(
@@ -386,9 +416,21 @@ class DroneApplication:
             head_pitch_deg = None
             head_pose_failure_reason = None
             head_pose_debug = None
+            tracking_anchor_y_px = None
+            tracking_anchor_source = None
             head_mesh_points: tuple[tuple[int, int], ...] = ()
             if is_target:
                 estimated_distance_m = command.estimated_distance_m
+                tracking_anchor_y_px = (
+                    enriched_target_face.tracking_anchor_y_px
+                    if enriched_target_face is not None
+                    else None
+                )
+                tracking_anchor_source = (
+                    enriched_target_face.tracking_anchor_source
+                    if enriched_target_face is not None
+                    else None
+                )
             if has_mesh_preview and head_pose is not None:
                 head_mesh_ready = head_pose.mesh_ready
                 head_pose_ready = head_pose.pose_ready
@@ -412,6 +454,8 @@ class DroneApplication:
                     head_pitch_deg=head_pitch_deg,
                     head_pose_failure_reason=head_pose_failure_reason,
                     head_pose_debug=head_pose_debug,
+                    tracking_anchor_y_px=tracking_anchor_y_px,
+                    tracking_anchor_source=tracking_anchor_source,
                     head_mesh_points=head_mesh_points,
                 )
             )
@@ -430,6 +474,11 @@ class DroneApplication:
             self._controller.stop_motion()
 
         return tracked_faces
+
+    def _bbox_tracking_anchor_y(self, bounding_box: Any) -> float:
+        return bounding_box.y + (
+            bounding_box.height * self._config.tracking_bbox_anchor_y_ratio
+        )
 
 
 def create_api(application: DroneApplication) -> Any:

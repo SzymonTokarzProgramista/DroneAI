@@ -20,6 +20,7 @@ def make_config(**overrides: object) -> AppConfig:
         "database_path": Path("data/drone_ai.sqlite3"),
         "embedder_model_path": Path("models/face_recognition_sface_2021dec_int8.onnx"),
         "detector_model_path": Path("models/blaze_face_short_range.tflite"),
+        "tracking_target_name": "Maks",
         "tracking_head_pose_enabled": True,
         "tracking_head_yaw_deadband_deg": 10.0,
         "tracking_lateral_gain": 1.0,
@@ -114,6 +115,34 @@ class FaceTrackerTests(unittest.TestCase):
     def test_vertical_tracking_uses_minimum_speed_when_face_is_too_low(self) -> None:
         tracker = FaceTracker(make_config())
         face = make_face(bounding_box=BoundingBox(x=270, y=250, width=100, height=120))
+
+        command = tracker.build_command_full(640, 480, face)
+
+        self.assertNotEqual(command.up_down_velocity, 0)
+        self.assertGreaterEqual(abs(command.up_down_velocity), 8)
+
+    def test_vertical_tracking_prefers_mesh_anchor_over_bbox_center(self) -> None:
+        tracker = FaceTracker(make_config())
+        face = make_face(
+            bounding_box=BoundingBox(x=270, y=240, width=100, height=120),
+            tracking_anchor_y_px=200.0,
+            tracking_anchor_source="mesh",
+        )
+
+        command = tracker.build_command_full(640, 480, face)
+
+        self.assertEqual(command.up_down_velocity, 0)
+
+    def test_vertical_tracking_falls_back_to_bbox_anchor_when_mesh_anchor_missing(self) -> None:
+        tracker = FaceTracker(make_config(
+            tracking_bbox_anchor_y_ratio=0.38,
+            tracking_vertical_target_y_ratio=0.42,
+        ))
+        face = make_face(
+            bounding_box=BoundingBox(x=270, y=260, width=100, height=120),
+            tracking_anchor_y_px=None,
+            tracking_anchor_source=None,
+        )
 
         command = tracker.build_command_full(640, 480, face)
 
