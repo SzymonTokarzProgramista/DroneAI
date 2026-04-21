@@ -8,6 +8,11 @@ from typing import Optional
 
 import numpy as np
 
+from drone_ai.constants.vision import (
+    RECOGNITION_BEST_SAMPLE_WEIGHT,
+    RECOGNITION_MEAN_SAMPLE_WEIGHT,
+    RECOGNITION_TOP_K_SAMPLES,
+)
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository, StoredEmbedding
 from drone_ai.vision.embedder import SFaceEmbedder
 from drone_ai.vision.schemas import FaceDetection, RecognizedFace
@@ -101,10 +106,13 @@ class FaceRecognitionService:
             if not sample_similarities:
                 continue
 
-            top_k = sample_similarities[: min(3, len(sample_similarities))]
+            top_k = sample_similarities[: min(RECOGNITION_TOP_K_SAMPLES, len(sample_similarities))]
             similarity = float(np.mean(top_k))
             best_single_similarity = top_k[0]
-            similarity = 0.65 * best_single_similarity + 0.35 * similarity
+            similarity = (
+                RECOGNITION_BEST_SAMPLE_WEIGHT * best_single_similarity
+                + RECOGNITION_MEAN_SAMPLE_WEIGHT * similarity
+            )
 
             if prototype is not None:
                 prototype_similarity = self._embedder.cosine_similarity(

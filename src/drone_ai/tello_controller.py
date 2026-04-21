@@ -9,6 +9,12 @@ from typing import Any, Optional
 
 import cv2
 
+from drone_ai.constants.config_defaults import DEFAULT_TAKEOFF_EXTRA_RISE_CM
+from drone_ai.constants.runtime import (
+    TELLO_POST_TAKEOFF_STREAM_DELAY_SECONDS,
+    TELLO_STREAM_START_DELAY_SECONDS,
+)
+
 
 @dataclass
 class TelloStatus:
@@ -21,7 +27,7 @@ class TelloStatus:
 class TelloController:
     """Encapsulates the initial Tello handshake used by the project."""
 
-    def __init__(self, *, takeoff_extra_rise_cm: int = 30) -> None:
+    def __init__(self, *, takeoff_extra_rise_cm: int = DEFAULT_TAKEOFF_EXTRA_RISE_CM) -> None:
         try:
             from djitellopy import Tello
         except ImportError as exc:
@@ -105,7 +111,7 @@ class TelloController:
                 if self._takeoff_extra_rise_cm > 0:
                     self._tello.move_up(self._takeoff_extra_rise_cm)
                 if self._stream_enabled:
-                    time.sleep(0.5)
+                    time.sleep(TELLO_POST_TAKEOFF_STREAM_DELAY_SECONDS)
                     self._frame_reader = self._tello.get_frame_read()
             return self.status()
 
@@ -185,5 +191,5 @@ class TelloController:
     def _enable_stream_locked(self) -> None:
         self._tello.streamon()
         self._stream_enabled = True
-        time.sleep(0.2)
+        time.sleep(TELLO_STREAM_START_DELAY_SECONDS)
         self._frame_reader = self._tello.get_frame_read()

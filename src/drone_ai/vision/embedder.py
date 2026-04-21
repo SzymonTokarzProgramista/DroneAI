@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from drone_ai.constants.vision import FACE_CHIP_MARGIN_RATIO, SFACE_INPUT_SIZE
 from drone_ai.vision.schemas import BoundingBox
 
 class SFaceEmbedder:
@@ -20,7 +21,7 @@ class SFaceEmbedder:
             )
 
         self._model = cv2.FaceRecognizerSF_create(str(self._model_path), "")
-        self._input_size = (112, 112)
+        self._input_size = SFACE_INPUT_SIZE
 
     def embed(self, frame_bgr: np.ndarray, bounding_box: BoundingBox) -> np.ndarray:
         face_chip = self._extract_face_chip(frame_bgr, bounding_box)
@@ -53,8 +54,8 @@ class SFaceEmbedder:
 
     @staticmethod
     def _crop_face(frame_bgr: np.ndarray, bounding_box: BoundingBox) -> np.ndarray:
-        margin_x = int(bounding_box.width * 0.15)
-        margin_y = int(bounding_box.height * 0.15)
+        margin_x = int(bounding_box.width * FACE_CHIP_MARGIN_RATIO)
+        margin_y = int(bounding_box.height * FACE_CHIP_MARGIN_RATIO)
         x0 = max(bounding_box.x - margin_x, 0)
         y0 = max(bounding_box.y - margin_y, 0)
         x1 = min(bounding_box.x + bounding_box.width + margin_x, frame_bgr.shape[1])

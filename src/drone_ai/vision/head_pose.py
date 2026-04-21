@@ -10,6 +10,20 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from drone_ai.constants.vision import (
+    HEAD_POSE_CONFIDENCE_CAP,
+    HEAD_POSE_DIST_COEFFS_SHAPE,
+    HEAD_POSE_EYE_LINE_DIVISOR,
+    HEAD_POSE_LANDMARK_INDEX,
+    HEAD_POSE_MAX_ABS_2D_YAW_DEG,
+    HEAD_POSE_MAX_ABS_POSE_DEG,
+    HEAD_POSE_MODEL_POINTS,
+    HEAD_POSE_NUM_FACES,
+    HEAD_POSE_ROI_PAD_X_RATIO,
+    HEAD_POSE_ROI_PAD_Y_RATIO,
+    HEAD_POSE_SINGULAR_EPSILON,
+    HEAD_POSE_YAW_2D_SCALE_DEG,
+)
 from drone_ai.vision.schemas import BoundingBox
 import mediapipe as mp
 
@@ -38,26 +52,8 @@ class HeadPoseEstimate:
 class MediaPipeHeadPoseEstimator:
     """Estimates head yaw and pitch from a face ROI."""
 
-    _LANDMARK_INDEX = {
-        "nose_tip": 1,
-        "chin": 152,
-        "left_eye_outer": 33,
-        "right_eye_outer": 263,
-        "mouth_left": 61,
-        "mouth_right": 291,
-    }
-
-    _MODEL_POINTS = np.array(
-        [
-            (0.0, 0.0, 0.0),
-            (0.0, -63.6, -12.5),
-            (-43.3, 32.7, -26.0),
-            (43.3, 32.7, -26.0),
-            (-28.9, -28.9, -24.1),
-            (28.9, -28.9, -24.1),
-        ],
-        dtype=np.float64,
-    )
+    _LANDMARK_INDEX = HEAD_POSE_LANDMARK_INDEX
+    _MODEL_POINTS = HEAD_POSE_MODEL_POINTS
 
     def __init__(
         self,
@@ -260,10 +256,10 @@ class MediaPipeHeadPoseEstimator:
         try:
             options = FaceLandmarkerOptions(
                 base_options=BaseOptions(model_asset_path=str(self._model_path)),
-                num_faces=1,
-                min_face_detection_confidence=min(self._min_confidence, 0.35),
-                min_face_presence_confidence=min(self._min_confidence, 0.35),
-                min_tracking_confidence=min(self._min_confidence, 0.35),
+                num_faces=HEAD_POSE_NUM_FACES,
+                min_face_detection_confidence=min(self._min_confidence, HEAD_POSE_CONFIDENCE_CAP),
+                min_face_presence_confidence=min(self._min_confidence, HEAD_POSE_CONFIDENCE_CAP),
+                min_tracking_confidence=min(self._min_confidence, HEAD_POSE_CONFIDENCE_CAP),
                 output_face_blendshapes=False,
                 output_facial_transformation_matrixes=False,
             )
@@ -278,8 +274,8 @@ class MediaPipeHeadPoseEstimator:
         face_box: BoundingBox,
     ) -> Optional[tuple[np.ndarray, int, int]]:
         frame_height, frame_width = frame_bgr.shape[:2]
-        pad_x = int(face_box.width * 0.35)
-        pad_y = int(face_box.height * 0.4)
+        pad_x = int(face_box.width * HEAD_POSE_ROI_PAD_X_RATIO)
+        pad_y = int(face_box.height * HEAD_POSE_ROI_PAD_Y_RATIO)
         x1 = max(face_box.x - pad_x, 0)
         y1 = max(face_box.y - pad_y, 0)
         x2 = min(face_box.x + face_box.width + pad_x, frame_width)
@@ -331,7 +327,7 @@ class MediaPipeHeadPoseEstimator:
             ],
             dtype=np.float64,
         )
-        dist_coeffs = np.zeros((4, 1), dtype=np.float64)
+        dist_coeffs = np.zeros(HEAD_POSE_DIST_COEFFS_SHAPE, dtype=np.float64)
         success, rotation_vector, _ = cv2.solvePnP(
             self._MODEL_POINTS,
             image_points,
@@ -344,7 +340,7 @@ class MediaPipeHeadPoseEstimator:
 
         rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
         sy = math.sqrt(rotation_matrix[0, 0] ** 2 + rotation_matrix[1, 0] ** 2)
-        singular = sy < 1e-6
+        singular = sy < HEAD_POSE_SINGULAR_EPSILON
 
         if not singular:
             pitch = math.degrees(math.atan2(-rotation_matrix[2, 1], rotation_matrix[2, 2]))
@@ -353,7 +349,10 @@ class MediaPipeHeadPoseEstimator:
             pitch = math.degrees(math.atan2(-rotation_matrix[1, 2], rotation_matrix[1, 1]))
             yaw = math.degrees(math.atan2(-rotation_matrix[2, 0], sy))
 
-        return float(np.clip(yaw, -90.0, 90.0)), float(np.clip(pitch, -90.0, 90.0))
+        return (
+            float(np.clip(yaw, -HEAD_POSE_MAX_ABS_POSE_DEG, HEAD_POSE_MAX_ABS_POSE_DEG)),
+            float(np.clip(pitch, -HEAD_POSE_MAX_ABS_POSE_DEG, HEAD_POSE_MAX_ABS_POSE_DEG)),
+        )
 
     def _estimate_yaw_2d(self, landmarks: list[Any], roi_width: int) -> float | None:
         if roi_width <= 0:
@@ -366,11 +365,17 @@ class MediaPipeHeadPoseEstimator:
         left_dist = abs(float(nose.x - left_eye.x))
         right_dist = abs(float(right_eye.x - nose.x))
         baseline = left_dist + right_dist
-        if baseline <= 1e-6:
+        if baseline <= HEAD_POSE_SINGULAR_EPSILON:
             return None
 
         balance = (right_dist - left_dist) / baseline
-        return float(np.clip(balance * 90.0, -45.0, 45.0))
+        return float(
+            np.clip(
+                balance * HEAD_POSE_YAW_2D_SCALE_DEG,
+                -HEAD_POSE_MAX_ABS_2D_YAW_DEG,
+                HEAD_POSE_MAX_ABS_2D_YAW_DEG,
+            )
+        )
 
     def _estimate_tracking_anchor_y(
         self,
@@ -388,5 +393,5 @@ class MediaPipeHeadPoseEstimator:
         except (IndexError, KeyError):
             return None
 
-        eye_line_y = (float(left_eye.y) + float(right_eye.y)) / 2.0
+        eye_line_y = (float(left_eye.y) + float(right_eye.y)) / HEAD_POSE_EYE_LINE_DIVISOR
         return float(offset_y + (eye_line_y * roi_height))

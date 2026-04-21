@@ -31,8 +31,8 @@ class RecognizedFace:
     bounding_box: BoundingBox
     confidence: float
     label: str
-    similarity: Optional[float] = None
     embedding_ready: bool
+    similarity: Optional[float] = None
     estimated_distance_m: Optional[float] = None
     is_tracking_target: bool = False
     head_mesh_ready: bool = False
@@ -56,11 +56,11 @@ class FrameAnalysis:
 @dataclass(frozen=True)
 class ApiStatus:
     connected: bool
-    battery: Optional[int] = None
     stream_enabled: bool
     flying: bool
     known_identities: int
     visible_faces: int
+    battery: Optional[int] = None
     tracking_enabled: bool = False
     tracking_target_name: Optional[str] = None
     tracking_target_visible: bool = False

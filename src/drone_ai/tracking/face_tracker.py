@@ -8,6 +8,16 @@ from typing import Optional
 from dataclasses import dataclass
 
 from drone_ai.config import AppConfig
+from drone_ai.constants.tracking import (
+    CENTER_DIVISOR,
+    INITIAL_SEARCH_DIRECTION,
+    MISSING_SIMILARITY_SCORE,
+    NO_TARGET_SEARCH_DIRECTION_LEFT,
+    NO_TARGET_SEARCH_DIRECTION_RIGHT,
+    PINHOLE_FOCAL_LENGTH_DIVISOR,
+    REACQUIRE_IOU_WEIGHT,
+    SEARCH_DIRECTION_DEADBAND_DIVISOR,
+)
 from drone_ai.vision.schemas import BoundingBox, RecognizedFace
 
 
@@ -57,7 +67,7 @@ class FaceTracker:
         self._preferred_frontal_yaw_deg = config.tracking_preferred_frontal_yaw_deg
         self._profile_recenter_yaw_gain = config.tracking_profile_recenter_yaw_gain
         self._head_yaw_turn_gain = config.tracking_head_yaw_turn_gain
-        self._search_direction = 1
+        self._search_direction = INITIAL_SEARCH_DIRECTION
         self._last_seen_at = 0.0
         self._last_seen_box: Optional[BoundingBox] = None
         self._last_seen_head_yaw_deg: Optional[float] = None
@@ -72,7 +82,7 @@ class FaceTracker:
             target = max(
                 candidates,
                 key=lambda face: (
-                    face.similarity if face.similarity is not None else -1.0,
+                    face.similarity if face.similarity is not None else MISSING_SIMILARITY_SCORE,
                     face.bounding_box.area,
                 ),
             )
@@ -87,7 +97,10 @@ class FaceTracker:
     def estimate_distance_m(self, frame_width: int, face_width_px: int) -> Optional[float]:
         if frame_width <= 0 or face_width_px <= 0:
             return None
-        focal_length_px = frame_width / (2.0 * math.tan(math.radians(self._camera_hfov_deg) / 2.0))
+        focal_length_px = frame_width / (
+            PINHOLE_FOCAL_LENGTH_DIVISOR
+            * math.tan(math.radians(self._camera_hfov_deg) / PINHOLE_FOCAL_LENGTH_DIVISOR)
+        )
         return (self._face_width_m * focal_length_px) / float(face_width_px)
 
     def build_command(self, frame_width: int, target_face: Optional[RecognizedFace]) -> TrackingCommand:
@@ -104,8 +117,8 @@ class FaceTracker:
         )
 
         yaw_velocity = 0
-        face_center_x = target_face.bounding_box.x + target_face.bounding_box.width / 2.0
-        frame_center_x = frame_width / 2.0
+        face_center_x = target_face.bounding_box.x + target_face.bounding_box.width / CENTER_DIVISOR
+        frame_center_x = frame_width / CENTER_DIVISOR
         desired_face_center_x = frame_center_x
         profile_recenter_active = False
         head_yaw_error_deg = None
@@ -242,7 +255,9 @@ class FaceTracker:
         if center_distance_px > self._match_max_distance_px:
             return None
 
-        return (iou * 2.2) - (center_distance_px / max(self._match_max_distance_px, 1.0))
+        return (iou * REACQUIRE_IOU_WEIGHT) - (
+            center_distance_px / max(self._match_max_distance_px, 1.0)
+        )
 
     def _remember_target(self, face: RecognizedFace) -> None:
         self._last_seen_at = time.monotonic()
@@ -257,7 +272,11 @@ class FaceTracker:
     def _build_search_command(self) -> Optional[TrackingCommand]:
         if self._last_seen_at <= 0.0 or self._search_yaw_speed <= 0:
             return None
-        search_direction = "right" if self._search_direction > 0 else "left"
+        search_direction = (
+            NO_TARGET_SEARCH_DIRECTION_RIGHT
+            if self._search_direction > 0
+            else NO_TARGET_SEARCH_DIRECTION_LEFT
+        )
         return TrackingCommand(
             left_right_velocity=0,
             forward_backward_velocity=0,
@@ -274,7 +293,7 @@ class FaceTracker:
         horizontal_error_px: float,
         head_yaw_deg: Optional[float],
     ) -> None:
-        if abs(horizontal_error_px) > self._yaw_deadband_px / 2.0:
+        if abs(horizontal_error_px) > self._yaw_deadband_px / SEARCH_DIRECTION_DEADBAND_DIVISOR:
             self._search_direction = 1 if horizontal_error_px > 0 else -1
             return
         if head_yaw_deg is not None and abs(head_yaw_deg) > self._head_yaw_deadband_deg:
@@ -282,7 +301,7 @@ class FaceTracker:
 
     @staticmethod
     def _box_center(box: BoundingBox) -> tuple[float, float]:
-        return box.x + (box.width / 2.0), box.y + (box.height / 2.0)
+        return box.x + (box.width / CENTER_DIVISOR), box.y + (box.height / CENTER_DIVISOR)
 
     @staticmethod
     def _iou(left: BoundingBox, right: BoundingBox) -> float:

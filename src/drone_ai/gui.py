@@ -9,6 +9,20 @@ from typing import Callable, Optional
 import cv2
 from PIL import Image, ImageTk
 
+from drone_ai.constants.runtime import (
+    GUI_COLUMN_PREVIEW_WEIGHT,
+    GUI_COLUMN_SIDEBAR_WEIGHT,
+    GUI_MIN_HEIGHT_PX,
+    GUI_MIN_WIDTH_PX,
+    GUI_OUTER_PADDING_PX,
+    GUI_PREVIEW_THUMBNAIL_SIZE,
+    GUI_REFRESH_INTERVAL_MS,
+    GUI_SECTION_FONT_SIZE,
+    GUI_TITLE_FONT_SIZE,
+    GUI_WINDOW_GEOMETRY,
+    GUI_WRAP_LENGTH_PX,
+    REGISTRATION_SERIES_SAMPLE_COUNT,
+)
 from drone_ai.storage.face_repository import IdentitySummary
 from drone_ai.vision.schemas import ApiStatus, RecognizedFace
 
@@ -48,8 +62,8 @@ class DroneAIGUI:
 
         self._root = tk.Tk()
         self._root.title(title)
-        self._root.geometry("1360x860")
-        self._root.minsize(1100, 700)
+        self._root.geometry(GUI_WINDOW_GEOMETRY)
+        self._root.minsize(GUI_MIN_WIDTH_PX, GUI_MIN_HEIGHT_PX)
 
         self._preview_image: Optional[ImageTk.PhotoImage] = None
         self._status_var = tk.StringVar(value="Starting...")
@@ -73,11 +87,11 @@ class DroneAIGUI:
             self._root.destroy()
 
     def _build_layout(self) -> None:
-        self._root.columnconfigure(0, weight=3)
-        self._root.columnconfigure(1, weight=1)
+        self._root.columnconfigure(0, weight=GUI_COLUMN_PREVIEW_WEIGHT)
+        self._root.columnconfigure(1, weight=GUI_COLUMN_SIDEBAR_WEIGHT)
         self._root.rowconfigure(0, weight=1)
 
-        preview_frame = ttk.Frame(self._root, padding=12)
+        preview_frame = ttk.Frame(self._root, padding=GUI_OUTER_PADDING_PX)
         preview_frame.grid(row=0, column=0, sticky="nsew")
         preview_frame.rowconfigure(0, weight=1)
         preview_frame.columnconfigure(0, weight=1)
@@ -85,17 +99,17 @@ class DroneAIGUI:
         self._preview_label = ttk.Label(preview_frame, text="Waiting for video stream...")
         self._preview_label.grid(row=0, column=0, sticky="nsew")
 
-        sidebar = ttk.Frame(self._root, padding=12)
+        sidebar = ttk.Frame(self._root, padding=GUI_OUTER_PADDING_PX)
         sidebar.grid(row=0, column=1, sticky="nsew")
         sidebar.columnconfigure(0, weight=1)
 
-        ttk.Label(sidebar, text="DroneAI", font=("TkDefaultFont", 16, "bold")).grid(
+        ttk.Label(sidebar, text="DroneAI", font=("TkDefaultFont", GUI_TITLE_FONT_SIZE, "bold")).grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
             sidebar,
             textvariable=self._status_var,
-            wraplength=320,
+            wraplength=GUI_WRAP_LENGTH_PX,
             justify="left",
         ).grid(row=1, column=0, sticky="ew", pady=(8, 12))
 
@@ -121,7 +135,11 @@ class DroneAIGUI:
         ).grid(row=4, column=0, sticky="ew", pady=(0, 8))
 
         ttk.Separator(sidebar).grid(row=5, column=0, sticky="ew", pady=8)
-        ttk.Label(sidebar, text="Capture Face", font=("TkDefaultFont", 11, "bold")).grid(
+        ttk.Label(
+            sidebar,
+            text="Capture Face",
+            font=("TkDefaultFont", GUI_SECTION_FONT_SIZE, "bold"),
+        ).grid(
             row=6, column=0, sticky="w"
         )
         ttk.Entry(sidebar, textvariable=self._name_var).grid(
@@ -134,31 +152,35 @@ class DroneAIGUI:
         ).grid(row=8, column=0, sticky="ew")
         ttk.Button(
             sidebar,
-            text="Capture 5 Samples",
+            text=f"Capture {REGISTRATION_SERIES_SAMPLE_COUNT} Samples",
             command=self._capture_face_series,
         ).grid(row=9, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(
             sidebar,
             text="Capture one sample or a short series of samples for the largest currently visible face.",
-            wraplength=320,
+            wraplength=GUI_WRAP_LENGTH_PX,
             justify="left",
         ).grid(row=10, column=0, sticky="ew", pady=(8, 12))
         ttk.Label(
             sidebar,
             textvariable=self._message_var,
             foreground="#1f4f99",
-            wraplength=320,
+            wraplength=GUI_WRAP_LENGTH_PX,
             justify="left",
         ).grid(row=11, column=0, sticky="ew", pady=(0, 12))
 
         ttk.Separator(sidebar).grid(row=12, column=0, sticky="ew", pady=8)
-        ttk.Label(sidebar, text="Visible Faces", font=("TkDefaultFont", 11, "bold")).grid(
+        ttk.Label(
+            sidebar,
+            text="Visible Faces",
+            font=("TkDefaultFont", GUI_SECTION_FONT_SIZE, "bold"),
+        ).grid(
             row=13, column=0, sticky="w"
         )
         ttk.Label(
             sidebar,
             textvariable=self._visible_faces_var,
-            wraplength=320,
+            wraplength=GUI_WRAP_LENGTH_PX,
             justify="left",
         ).grid(row=14, column=0, sticky="ew", pady=(8, 12))
 
@@ -169,7 +191,7 @@ class DroneAIGUI:
         ttk.Label(
             identities_header,
             text="Known Identities",
-            font=("TkDefaultFont", 11, "bold"),
+            font=("TkDefaultFont", GUI_SECTION_FONT_SIZE, "bold"),
         ).grid(row=0, column=0, sticky="w")
         ttk.Button(
             identities_header,
@@ -179,7 +201,7 @@ class DroneAIGUI:
         ttk.Label(
             sidebar,
             textvariable=self._identities_var,
-            wraplength=320,
+            wraplength=GUI_WRAP_LENGTH_PX,
             justify="left",
         ).grid(row=17, column=0, sticky="ew", pady=(8, 0))
 
@@ -189,7 +211,7 @@ class DroneAIGUI:
     def _schedule_refresh(self) -> None:
         self._update_preview()
         self._update_status()
-        self._root.after(80, self._schedule_refresh)
+        self._root.after(GUI_REFRESH_INTERVAL_MS, self._schedule_refresh)
 
     def _update_preview(self) -> None:
         frame = self._get_frame()
@@ -198,7 +220,7 @@ class DroneAIGUI:
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_image = Image.fromarray(frame_rgb)
-        frame_image.thumbnail((920, 780))
+        frame_image.thumbnail(GUI_PREVIEW_THUMBNAIL_SIZE)
         photo = ImageTk.PhotoImage(frame_image)
         self._preview_label.configure(image=photo, text="")
         self._preview_label.image = photo
@@ -296,7 +318,10 @@ class DroneAIGUI:
             self._message_var.set("Enter a name before capturing a face series.")
             return
 
-        self._message_var.set("Capturing 5 samples. Keep one face centered and still for a moment.")
+        self._message_var.set(
+            f"Capturing {REGISTRATION_SERIES_SAMPLE_COUNT} samples. "
+            "Keep one face centered and still for a moment."
+        )
         self._root.update_idletasks()
 
         try:
@@ -306,7 +331,8 @@ class DroneAIGUI:
             return
 
         self._message_var.set(
-            f"Saved 5 samples for '{summary.name}'. Total embeddings: {summary.embedding_count}."
+            f"Saved {REGISTRATION_SERIES_SAMPLE_COUNT} samples for '{summary.name}'. "
+            f"Total embeddings: {summary.embedding_count}."
         )
         self._refresh_identity_list()
 

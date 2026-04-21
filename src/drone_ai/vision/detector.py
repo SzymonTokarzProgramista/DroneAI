@@ -9,6 +9,30 @@ from typing import Any, Optional
 
 import cv2
 
+from drone_ai.constants.vision import (
+    DETECTOR_DEFAULT_MIN_CONFIDENCE,
+    DETECTOR_DEFAULT_NMS_THRESHOLD,
+    DETECTOR_FALLBACK_MIN_CONFIDENCE,
+    DETECTOR_RECOVERY_CONFIDENCE_DELTA,
+    HAAR_FRONTAL_CONFIDENCE,
+    HAAR_FRONTAL_MIN_NEIGHBORS,
+    HAAR_FRONTAL_MIN_SIZE,
+    HAAR_FRONTAL_SCALE_FACTOR,
+    HAAR_PROFILE_CONFIDENCE,
+    HAAR_PROFILE_MIN_NEIGHBORS,
+    HAAR_PROFILE_MIN_SIZE,
+    HAAR_PROFILE_SCALE_FACTOR,
+    MEDIAPIPE_DETECTOR_CONFIDENCE_CAP,
+    MEDIAPIPE_FULL_RANGE_MODEL_SELECTION,
+    MEDIAPIPE_SHORT_RANGE_MODEL_SELECTION,
+    NMS_MIN_CANDIDATES,
+    RECOVERY_FRONTAL_MAX_ASPECT_RATIO,
+    RECOVERY_FRONTAL_MIN_ASPECT_RATIO,
+    RECOVERY_MIN_FACE_AREA_PX,
+    RECOVERY_MIN_FACE_SIZE_PX,
+    RECOVERY_PROFILE_MAX_ASPECT_RATIO,
+    RECOVERY_PROFILE_MIN_ASPECT_RATIO,
+)
 from drone_ai.vision.schemas import BoundingBox, FaceDetection
 
 try:
@@ -29,17 +53,20 @@ class MediaPipeFaceDetector:
     def __init__(
         self,
         *,
-        min_detection_confidence: float = 0.8,
+        min_detection_confidence: float = DETECTOR_DEFAULT_MIN_CONFIDENCE,
         recovery_detection_confidence: Optional[float] = None,
         detector_model_path: Optional[Path] = None,
-        nms_threshold: float = 0.35,
+        nms_threshold: float = DETECTOR_DEFAULT_NMS_THRESHOLD,
     ) -> None:
         self._min_detection_confidence = min_detection_confidence
         self._recovery_detection_confidence = min(
             min_detection_confidence,
             recovery_detection_confidence
             if recovery_detection_confidence is not None
-            else max(0.62, min_detection_confidence - 0.22),
+            else max(
+                DETECTOR_FALLBACK_MIN_CONFIDENCE,
+                min_detection_confidence - DETECTOR_RECOVERY_CONFIDENCE_DELTA,
+            ),
         )
         self._nms_threshold = nms_threshold
         self._detectors = self._create_detectors(
@@ -127,18 +154,27 @@ class MediaPipeFaceDetector:
         if mp is not None:
             solutions_module = self._load_solutions_module()
             if solutions_module is not None:
-                for model_selection, name in ((0, "solutions_short"), (1, "solutions_full")):
+                for model_selection, name in (
+                    (MEDIAPIPE_SHORT_RANGE_MODEL_SELECTION, "solutions_short"),
+                    (MEDIAPIPE_FULL_RANGE_MODEL_SELECTION, "solutions_full"),
+                ):
                     try:
                         detector = solutions_module.FaceDetection(
                             model_selection=model_selection,
-                            min_detection_confidence=min(min_detection_confidence, 0.72),
+                            min_detection_confidence=min(
+                                min_detection_confidence,
+                                MEDIAPIPE_DETECTOR_CONFIDENCE_CAP,
+                            ),
                         )
                         detectors.append(_DetectorBackend(name=name, detector=detector))
                     except Exception:
                         continue
 
             tasks_detector = self._load_tasks_detector(
-                min_detection_confidence=min(min_detection_confidence, 0.72),
+                min_detection_confidence=min(
+                    min_detection_confidence,
+                    MEDIAPIPE_DETECTOR_CONFIDENCE_CAP,
+                ),
                 detector_model_path=detector_model_path,
             )
             if tasks_detector is not None:
@@ -215,14 +251,14 @@ class MediaPipeFaceDetector:
         if backend.name == "haar_frontal":
             faces = backend.detector.detectMultiScale(
                 grayscale,
-                scaleFactor=1.1,
-                minNeighbors=6,
-                minSize=(44, 44),
+                scaleFactor=HAAR_FRONTAL_SCALE_FACTOR,
+                minNeighbors=HAAR_FRONTAL_MIN_NEIGHBORS,
+                minSize=HAAR_FRONTAL_MIN_SIZE,
             )
             return [
                 FaceDetection(
                     bounding_box=BoundingBox(x=int(x), y=int(y), width=int(width), height=int(height)),
-                    confidence=0.7,
+                    confidence=HAAR_FRONTAL_CONFIDENCE,
                 )
                 for (x, y, width, height) in faces
             ]
@@ -232,7 +268,7 @@ class MediaPipeFaceDetector:
             return [
                 FaceDetection(
                     bounding_box=box,
-                    confidence=0.64,
+                    confidence=HAAR_PROFILE_CONFIDENCE,
                 )
                 for box in detections
             ]
@@ -330,9 +366,9 @@ class MediaPipeFaceDetector:
         detections: list[BoundingBox] = []
         faces = detector.detectMultiScale(
             grayscale,
-            scaleFactor=1.12,
-            minNeighbors=7,
-            minSize=(52, 52),
+            scaleFactor=HAAR_PROFILE_SCALE_FACTOR,
+            minNeighbors=HAAR_PROFILE_MIN_NEIGHBORS,
+            minSize=HAAR_PROFILE_MIN_SIZE,
         )
         detections.extend(
             BoundingBox(x=int(x), y=int(y), width=int(width), height=int(height))
@@ -342,9 +378,9 @@ class MediaPipeFaceDetector:
         flipped = cv2.flip(grayscale, 1)
         mirrored_faces = detector.detectMultiScale(
             flipped,
-            scaleFactor=1.12,
-            minNeighbors=7,
-            minSize=(52, 52),
+            scaleFactor=HAAR_PROFILE_SCALE_FACTOR,
+            minNeighbors=HAAR_PROFILE_MIN_NEIGHBORS,
+            minSize=HAAR_PROFILE_MIN_SIZE,
         )
         detections.extend(
             MediaPipeFaceDetector._mirror_bounding_box(
@@ -387,7 +423,7 @@ class MediaPipeFaceDetector:
                 if detection.confidence >= self._recovery_detection_confidence
                 and self._passes_recovery_geometry(detection.bounding_box, profile_mode=profile_mode)
             ]
-        if len(filtered) < 2:
+        if len(filtered) < NMS_MIN_CANDIDATES:
             return filtered
 
         filtered.sort(
@@ -408,12 +444,16 @@ class MediaPipeFaceDetector:
 
     @staticmethod
     def _passes_recovery_geometry(box: BoundingBox, *, profile_mode: bool) -> bool:
-        if box.width < 52 or box.height < 52 or box.area < 3_200:
+        if (
+            box.width < RECOVERY_MIN_FACE_SIZE_PX
+            or box.height < RECOVERY_MIN_FACE_SIZE_PX
+            or box.area < RECOVERY_MIN_FACE_AREA_PX
+        ):
             return False
         aspect_ratio = box.width / float(box.height)
         if profile_mode:
-            return 0.58 <= aspect_ratio <= 1.18
-        return 0.65 <= aspect_ratio <= 1.45
+            return RECOVERY_PROFILE_MIN_ASPECT_RATIO <= aspect_ratio <= RECOVERY_PROFILE_MAX_ASPECT_RATIO
+        return RECOVERY_FRONTAL_MIN_ASPECT_RATIO <= aspect_ratio <= RECOVERY_FRONTAL_MAX_ASPECT_RATIO
 
     @staticmethod
     def _iou(left: BoundingBox, right: BoundingBox) -> float:

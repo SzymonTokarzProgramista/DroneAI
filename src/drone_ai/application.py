@@ -8,6 +8,18 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Optional
 
 from drone_ai.config import AppConfig
+from drone_ai.constants.runtime import (
+    API_START_POLL_INTERVAL_SECONDS,
+    API_START_TIMEOUT_SECONDS,
+    API_THREAD_JOIN_TIMEOUT_SECONDS,
+    PROCESSING_ERROR_SLEEP_SECONDS,
+    PROCESSING_THREAD_JOIN_TIMEOUT_SECONDS,
+    REGISTRATION_FRAME_WAIT_SECONDS,
+    REGISTRATION_MIN_FACE_AREA_PX,
+    REGISTRATION_SAMPLE_INTERVAL_SECONDS,
+    REGISTRATION_SERIES_SAMPLE_COUNT,
+    REGISTRATION_SERIES_TIMEOUT_SECONDS,
+)
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository
 from drone_ai.tello_controller import TelloController, TelloStatus
 from drone_ai.tracking.face_tracker import FaceTracker
@@ -105,7 +117,7 @@ class DroneApplication:
         self._tracking_search_direction = None
         self._stop_event.set()
         if self._processing_thread is not None:
-            self._processing_thread.join(timeout=5)
+            self._processing_thread.join(timeout=PROCESSING_THREAD_JOIN_TIMEOUT_SECONDS)
             self._processing_thread = None
         self._controller.disconnect()
 
@@ -150,14 +162,14 @@ class DroneApplication:
         )
         self._api_thread.start()
 
-        deadline = time.time() + 5
+        deadline = time.time() + API_START_TIMEOUT_SECONDS
         while time.time() < deadline:
             if self._api_server.started:
                 self._api_url = f"http://{host}:{port}"
                 return
             if not self._api_thread.is_alive():
                 break
-            time.sleep(0.05)
+            time.sleep(API_START_POLL_INTERVAL_SECONDS)
 
         raise RuntimeError("API server failed to start.")
 
@@ -167,7 +179,7 @@ class DroneApplication:
 
         self._api_server.should_exit = True
         if self._api_thread is not None:
-            self._api_thread.join(timeout=5)
+            self._api_thread.join(timeout=API_THREAD_JOIN_TIMEOUT_SECONDS)
         self._api_server = None
         self._api_thread = None
         self._api_url = None
@@ -210,8 +222,8 @@ class DroneApplication:
         self,
         name: str,
         *,
-        sample_count: int = 5,
-        timeout_seconds: float = 6.0,
+        sample_count: int = REGISTRATION_SERIES_SAMPLE_COUNT,
+        timeout_seconds: float = REGISTRATION_SERIES_TIMEOUT_SECONDS,
     ) -> IdentitySummary:
         deadline = time.time() + timeout_seconds
         last_frame_id = -1
@@ -230,19 +242,19 @@ class DroneApplication:
                     frame = None
 
             if analysis is None or frame is None or not detections or frame_id == last_frame_id:
-                time.sleep(0.08)
+                time.sleep(REGISTRATION_FRAME_WAIT_SECONDS)
                 continue
 
             detection = FacePipeline.choose_face(detections)
-            if detection.bounding_box.area < 10_000:
+            if detection.bounding_box.area < REGISTRATION_MIN_FACE_AREA_PX:
                 last_frame_id = frame_id
-                time.sleep(0.08)
+                time.sleep(REGISTRATION_FRAME_WAIT_SECONDS)
                 continue
 
             latest_summary = self._recognizer.register_face(name, frame, detection)
             captured += 1
             last_frame_id = frame_id
-            time.sleep(0.12)
+            time.sleep(REGISTRATION_SAMPLE_INTERVAL_SECONDS)
 
         if latest_summary is None:
             raise RuntimeError("Failed to capture a usable face series from the current preview.")
@@ -339,7 +351,7 @@ class DroneApplication:
                 self._tracking_search_active = False
                 self._tracking_search_direction = None
                 self._controller.stop_motion()
-                time.sleep(0.05)
+                time.sleep(PROCESSING_ERROR_SLEEP_SECONDS)
                 continue
 
     def _apply_tracking(
