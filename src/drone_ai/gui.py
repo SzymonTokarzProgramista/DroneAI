@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable
+from typing import Callable, Optional
 
 import cv2
 from PIL import Image, ImageTk
@@ -51,7 +51,7 @@ class DroneAIGUI:
         self._root.geometry("1360x860")
         self._root.minsize(1100, 700)
 
-        self._preview_image: ImageTk.PhotoImage | None = None
+        self._preview_image: Optional[ImageTk.PhotoImage] = None
         self._status_var = tk.StringVar(value="Starting...")
         self._message_var = tk.StringVar(value="Ready.")
         self._tracking_button_var = tk.StringVar(value="Enable Tracking")

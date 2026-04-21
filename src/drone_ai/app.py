@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Optional
 
 from drone_ai.application import DroneApplication
 from drone_ai.config import AppConfig
@@ -29,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    application: DroneApplication | None = None
+    application: Optional[DroneApplication] = None
 
     try:
         application = DroneApplication(AppConfig.from_env(ROOT_DIR))

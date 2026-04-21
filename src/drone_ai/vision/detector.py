@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 
@@ -30,8 +30,8 @@ class MediaPipeFaceDetector:
         self,
         *,
         min_detection_confidence: float = 0.8,
-        recovery_detection_confidence: float | None = None,
-        detector_model_path: Path | None = None,
+        recovery_detection_confidence: Optional[float] = None,
+        detector_model_path: Optional[Path] = None,
         nms_threshold: float = 0.35,
     ) -> None:
         self._min_detection_confidence = min_detection_confidence
@@ -120,7 +120,7 @@ class MediaPipeFaceDetector:
         self,
         *,
         min_detection_confidence: float,
-        detector_model_path: Path | None,
+        detector_model_path: Optional[Path],
     ) -> list[_DetectorBackend]:
         detectors: list[_DetectorBackend] = []
 
@@ -240,7 +240,7 @@ class MediaPipeFaceDetector:
         return []
 
     @staticmethod
-    def _load_solutions_module() -> Any | None:
+    def _load_solutions_module() -> Optional[Any]:
         if mp is None:
             return None
 
@@ -263,8 +263,8 @@ class MediaPipeFaceDetector:
     def _load_tasks_detector(
         *,
         min_detection_confidence: float,
-        detector_model_path: Path | None,
-    ) -> Any | None:
+        detector_model_path: Optional[Path],
+    ) -> Optional[Any]:
         if mp is None:
             return None
 
@@ -315,7 +315,7 @@ class MediaPipeFaceDetector:
         return face_detector_cls.create_from_options(options)
 
     @staticmethod
-    def _load_haar_detector(filename: str) -> Any | None:
+    def _load_haar_detector(filename: str) -> Optional[Any]:
         cascade_path = Path(cv2.data.haarcascades) / filename
         if not cascade_path.exists():
             return None

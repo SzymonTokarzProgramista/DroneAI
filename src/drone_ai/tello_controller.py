@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import RLock
 import time
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 
@@ -13,7 +13,7 @@ import cv2
 @dataclass
 class TelloStatus:
     connected: bool
-    battery: int | None = None
+    battery: Optional[int] = None
     stream_enabled: bool = False
     flying: bool = False
 
@@ -39,7 +39,7 @@ class TelloController:
         self._connected = False
         self._stream_enabled = False
         self._flying = False
-        self._frame_reader: Any | None = None
+        self._frame_reader: Optional[Any] = None
         self._lock = RLock()
         self._takeoff_extra_rise_cm = max(int(takeoff_extra_rise_cm), 0)
 
@@ -93,7 +93,6 @@ class TelloController:
             if frame is None:
                 raise RuntimeError("Tello video frame is not available yet.")
 
-            # DJITelloPy frames can arrive in RGB order; normalize to BGR for OpenCV processing/display.
             return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
     def takeoff(self) -> TelloStatus:

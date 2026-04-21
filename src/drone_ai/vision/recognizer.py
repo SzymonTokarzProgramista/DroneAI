@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock
+from typing import Optional
 
 import numpy as np
 
@@ -78,8 +79,8 @@ class FaceRecognitionService:
             )
 
         best_name = "unknown"
-        best_similarity: float | None = None
-        second_best_similarity: float | None = None
+        best_similarity: Optional[float] = None
+        second_best_similarity: Optional[float] = None
 
         with self._lock:
             prototypes = {prototype.name: prototype for prototype in self._prototypes}

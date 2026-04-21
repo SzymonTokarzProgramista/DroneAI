@@ -5,41 +5,33 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 import numpy as np
 
 from drone_ai.vision.schemas import BoundingBox
+import mediapipe as mp
 
-try:
-    import mediapipe as mp
-except ImportError:
-    mp = None
 
-try:
-    from mediapipe.tasks.python.core.base_options import BaseOptions
-    from mediapipe.tasks.python.vision.face_landmarker import (
+from mediapipe.tasks.python.core.base_options import BaseOptions
+from mediapipe.tasks.python.vision.face_landmarker import (
         FaceLandmarker,
         FaceLandmarkerOptions,
-    )
-except ImportError:
-    BaseOptions = None
-    FaceLandmarker = None
-    FaceLandmarkerOptions = None
+)
 
 
 @dataclass(frozen=True)
 class HeadPoseEstimate:
     mesh_ready: bool
     pose_ready: bool
-    yaw_deg: float | None
-    pitch_deg: float | None
+    yaw_deg: Optional[float]
+    pitch_deg: Optional[float]
     confidence: float
-    failure_reason: str | None
-    debug_message: str | None
-    yaw_source: str | None
-    tracking_anchor_y_px: float | None
+    failure_reason: Optional[str]
+    debug_message: Optional[str]
+    yaw_source: Optional[str]
+    tracking_anchor_y_px: Optional[float]
     mesh_points: tuple[tuple[int, int], ...]
 
 
@@ -74,7 +66,7 @@ class MediaPipeHeadPoseEstimator:
         min_confidence: float,
         model_path: Path,
     ) -> None:
-        self._enabled = enabled and mp is not None
+        self._enabled = enabled
         self._min_confidence = min_confidence
         self._model_path = Path(model_path)
         self._init_debug = "ok"
@@ -94,7 +86,7 @@ class MediaPipeHeadPoseEstimator:
         self,
         frame_bgr: np.ndarray,
         face_box: BoundingBox,
-    ) -> HeadPoseEstimate | None:
+    ) -> Optional[HeadPoseEstimate]:
         if self._landmarker is None:
             return HeadPoseEstimate(
                 mesh_ready=False,
@@ -256,13 +248,9 @@ class MediaPipeHeadPoseEstimator:
         if self._landmarker is not None:
             self._landmarker.close()
 
-    def _create_landmarker(self) -> Any | None:
+    def _create_landmarker(self) -> Optional[Any]:
         if mp is None:
             self._init_debug = "mediapipe_module_missing"
-            return None
-
-        if BaseOptions is None or FaceLandmarker is None or FaceLandmarkerOptions is None:
-            self._init_debug = "face_landmarker_tasks_unavailable"
             return None
 
         if not self._model_path.exists():
@@ -288,7 +276,7 @@ class MediaPipeHeadPoseEstimator:
     def _extract_face_roi(
         frame_bgr: np.ndarray,
         face_box: BoundingBox,
-    ) -> tuple[np.ndarray, int, int] | None:
+    ) -> Optional[tuple[np.ndarray, int, int]]:
         frame_height, frame_width = frame_bgr.shape[:2]
         pad_x = int(face_box.width * 0.35)
         pad_y = int(face_box.height * 0.4)
@@ -317,7 +305,6 @@ class MediaPipeHeadPoseEstimator:
             if scores:
                 return max(scores)
 
-        # Face Landmarker does not always expose a dedicated per-face confidence.
         return 1.0
 
     @staticmethod
@@ -334,7 +321,7 @@ class MediaPipeHeadPoseEstimator:
         image_points: np.ndarray,
         frame_width: int,
         frame_height: int,
-    ) -> tuple[float, float] | None:
+    ) -> Optional[tuple[float, float]]:
         focal_length = frame_width
         camera_matrix = np.array(
             [
@@ -383,7 +370,6 @@ class MediaPipeHeadPoseEstimator:
             return None
 
         balance = (right_dist - left_dist) / baseline
-        # Practical, bounded 2D fallback when solvePnP is unstable.
         return float(np.clip(balance * 90.0, -45.0, 45.0))
 
     def _estimate_tracking_anchor_y(
@@ -392,7 +378,7 @@ class MediaPipeHeadPoseEstimator:
         *,
         roi_height: int,
         offset_y: int,
-    ) -> float | None:
+    ) -> Optional[float]:
         if roi_height <= 0:
             return None
 

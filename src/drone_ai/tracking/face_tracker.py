@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from typing import Optional
 from dataclasses import dataclass
 
 from drone_ai.config import AppConfig
@@ -16,10 +17,10 @@ class TrackingCommand:
     forward_backward_velocity: int
     up_down_velocity: int
     yaw_velocity: int
-    estimated_distance_m: float | None
+    estimated_distance_m: Optional[float]
     target_visible: bool
     search_active: bool = False
-    search_direction: str | None = None
+    search_direction: Optional[str] = None
 
 
 class FaceTracker:
@@ -58,14 +59,14 @@ class FaceTracker:
         self._head_yaw_turn_gain = config.tracking_head_yaw_turn_gain
         self._search_direction = 1
         self._last_seen_at = 0.0
-        self._last_seen_box: BoundingBox | None = None
-        self._last_seen_head_yaw_deg: float | None = None
+        self._last_seen_box: Optional[BoundingBox] = None
+        self._last_seen_head_yaw_deg: Optional[float] = None
 
     @property
     def target_name(self) -> str:
         return self._target_name
 
-    def select_target(self, faces: list[RecognizedFace]) -> RecognizedFace | None:
+    def select_target(self, faces: list[RecognizedFace]) -> Optional[RecognizedFace]:
         candidates = [face for face in faces if face.label == self._target_name]
         if candidates:
             target = max(
@@ -83,13 +84,13 @@ class FaceTracker:
             self._remember_target(fallback)
         return fallback
 
-    def estimate_distance_m(self, frame_width: int, face_width_px: int) -> float | None:
+    def estimate_distance_m(self, frame_width: int, face_width_px: int) -> Optional[float]:
         if frame_width <= 0 or face_width_px <= 0:
             return None
         focal_length_px = frame_width / (2.0 * math.tan(math.radians(self._camera_hfov_deg) / 2.0))
         return (self._face_width_m * focal_length_px) / float(face_width_px)
 
-    def build_command(self, frame_width: int, target_face: RecognizedFace | None) -> TrackingCommand:
+    def build_command(self, frame_width: int, target_face: Optional[RecognizedFace]) -> TrackingCommand:
         if target_face is None:
             search_command = self._build_search_command()
             if search_command is not None:
@@ -170,7 +171,7 @@ class FaceTracker:
         self,
         frame_width: int,
         frame_height: int,
-        target_face: RecognizedFace | None,
+        target_face: Optional[RecognizedFace],
     ) -> TrackingCommand:
         command = self.build_command(frame_width, target_face)
         if target_face is None:
@@ -206,7 +207,7 @@ class FaceTracker:
             target_face.bounding_box.height * self._bbox_anchor_y_ratio
         )
 
-    def _select_reacquire_candidate(self, faces: list[RecognizedFace]) -> RecognizedFace | None:
+    def _select_reacquire_candidate(self, faces: list[RecognizedFace]) -> Optional[RecognizedFace]:
         if not self._can_reacquire() or self._last_seen_box is None:
             return None
         if not faces:
@@ -230,7 +231,7 @@ class FaceTracker:
         )
         return candidates[0][1]
 
-    def _reacquire_score(self, candidate_box: BoundingBox) -> float | None:
+    def _reacquire_score(self, candidate_box: BoundingBox) -> Optional[float]:
         if self._last_seen_box is None:
             return None
 
@@ -253,7 +254,7 @@ class FaceTracker:
             return False
         return (time.monotonic() - self._last_seen_at) <= self._reacquire_timeout_seconds
 
-    def _build_search_command(self) -> TrackingCommand | None:
+    def _build_search_command(self) -> Optional[TrackingCommand]:
         if self._last_seen_at <= 0.0 or self._search_yaw_speed <= 0:
             return None
         search_direction = "right" if self._search_direction > 0 else "left"
@@ -271,7 +272,7 @@ class FaceTracker:
     def _update_search_direction(
         self,
         horizontal_error_px: float,
-        head_yaw_deg: float | None,
+        head_yaw_deg: Optional[float],
     ) -> None:
         if abs(horizontal_error_px) > self._yaw_deadband_px / 2.0:
             self._search_direction = 1 if horizontal_error_px > 0 else -1

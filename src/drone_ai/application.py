@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from drone_ai.config import AppConfig
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository
@@ -68,22 +68,22 @@ class DroneApplication:
             min_confidence=config.tracking_head_pose_min_confidence,
             model_path=config.face_landmarker_model_path,
         )
-        self._latest_analysis: FrameAnalysis | None = None
+        self._latest_analysis: Optional[FrameAnalysis] = None
         self._latest_detections: list[FaceDetection] = []
         self._latest_frame_id = 0
         self._tracking_enabled = False
         self._tracking_target_visible = False
-        self._tracking_target_distance_m: float | None = None
+        self._tracking_target_distance_m: Optional[float] = None
         self._tracking_search_active = False
-        self._tracking_search_direction: str | None = None
+        self._tracking_search_direction: Optional[str] = None
         self._show_head_mesh = False
         self._frame_lock = threading.RLock()
         self._stop_event = threading.Event()
-        self._processing_thread: threading.Thread | None = None
-        self._api_server: Any | None = None
-        self._api_thread: threading.Thread | None = None
-        self._api_url: str | None = None
-        self._gui: DroneAIGUI | None = None
+        self._processing_thread: Optional[threading.Thread] = None
+        self._api_server: Optional[Any] = None
+        self._api_thread: Optional[threading.Thread] = None
+        self._api_url: Optional[str] = None
+        self._gui: Optional[DroneAIGUI] = None
 
     def connect(self, *, enable_stream: bool = True) -> TelloStatus:
         status = self._controller.connect(enable_stream=enable_stream)
@@ -216,7 +216,7 @@ class DroneApplication:
         deadline = time.time() + timeout_seconds
         last_frame_id = -1
         captured = 0
-        latest_summary: IdentitySummary | None = None
+        latest_summary: Optional[IdentitySummary] = None
 
         while captured < sample_count and time.time() < deadline:
             with self._frame_lock:

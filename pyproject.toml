@@ -17,7 +17,7 @@ dependencies = [
   "fastapi>=0.110",
   "numpy>=1.26",
   "mediapipe>=0.10.14",
-   "uvicorn>=0.29",
+  "uvicorn>=0.29",
   "opencv-python>=4.9",
   "pillow>=10.3",
 ]
