@@ -157,7 +157,7 @@ class DroneAIGUI:
         ).grid(row=9, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(
             sidebar,
-            text="Capture one sample or a short series of samples for the largest currently visible face.",
+            text="Capture one photo to build a one-shot face profile, or capture a short series for extra robustness.",
             wraplength=GUI_WRAP_LENGTH_PX,
             justify="left",
         ).grid(row=10, column=0, sticky="ew", pady=(8, 12))
@@ -308,7 +308,8 @@ class DroneAIGUI:
             return
 
         self._message_var.set(
-            f"Saved embedding for '{summary.name}'. Total embeddings: {summary.embedding_count}."
+            f"Saved one-shot face profile for '{summary.name}'. "
+            f"Total embeddings: {summary.embedding_count}."
         )
         self._refresh_identity_list()
 

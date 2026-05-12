@@ -55,9 +55,19 @@ class FaceRecognitionService:
     def list_identities(self) -> list[IdentitySummary]:
         return self._repository.list_identities()
 
-    def register_face(self, name: str, frame_bgr: np.ndarray, detection: FaceDetection) -> IdentitySummary:
-        embedding = self._embedder.embed(frame_bgr, detection.bounding_box)
-        summary = self._repository.add_embedding(name, embedding)
+    def register_face(
+        self,
+        name: str,
+        frame_bgr: np.ndarray,
+        detection: FaceDetection,
+        *,
+        augment_from_single_frame: bool = True,
+    ) -> IdentitySummary:
+        if augment_from_single_frame:
+            embeddings = self._embedder.embed_variants(frame_bgr, detection.bounding_box)
+        else:
+            embeddings = [self._embedder.embed(frame_bgr, detection.bounding_box)]
+        summary = self._repository.add_embeddings(name, embeddings)
         self.reload_gallery()
         return summary
 

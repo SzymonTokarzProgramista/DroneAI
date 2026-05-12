@@ -251,7 +251,12 @@ class DroneApplication:
                 time.sleep(REGISTRATION_FRAME_WAIT_SECONDS)
                 continue
 
-            latest_summary = self._recognizer.register_face(name, frame, detection)
+            latest_summary = self._recognizer.register_face(
+                name,
+                frame,
+                detection,
+                augment_from_single_frame=False,
+            )
             captured += 1
             last_frame_id = frame_id
             time.sleep(REGISTRATION_SAMPLE_INTERVAL_SECONDS)
