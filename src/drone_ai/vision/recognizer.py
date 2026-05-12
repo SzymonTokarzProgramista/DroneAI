@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import RLock
+from typing import Optional
 
 import numpy as np
 
+from drone_ai.constants.vision import (
+    RECOGNITION_BEST_SAMPLE_WEIGHT,
+    RECOGNITION_MEAN_SAMPLE_WEIGHT,
+    RECOGNITION_TOP_K_SAMPLES,
+)
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository, StoredEmbedding
 from drone_ai.vision.embedder import SFaceEmbedder
 from drone_ai.vision.schemas import FaceDetection, RecognizedFace
@@ -49,9 +55,19 @@ class FaceRecognitionService:
     def list_identities(self) -> list[IdentitySummary]:
         return self._repository.list_identities()
 
-    def register_face(self, name: str, frame_bgr: np.ndarray, detection: FaceDetection) -> IdentitySummary:
-        embedding = self._embedder.embed(frame_bgr, detection.bounding_box)
-        summary = self._repository.add_embedding(name, embedding)
+    def register_face(
+        self,
+        name: str,
+        frame_bgr: np.ndarray,
+        detection: FaceDetection,
+        *,
+        augment_from_single_frame: bool = True,
+    ) -> IdentitySummary:
+        if augment_from_single_frame:
+            embeddings = self._embedder.embed_variants(frame_bgr, detection.bounding_box)
+        else:
+            embeddings = [self._embedder.embed(frame_bgr, detection.bounding_box)]
+        summary = self._repository.add_embeddings(name, embeddings)
         self.reload_gallery()
         return summary
 
@@ -78,8 +94,8 @@ class FaceRecognitionService:
             )
 
         best_name = "unknown"
-        best_similarity: float | None = None
-        second_best_similarity: float | None = None
+        best_similarity: Optional[float] = None
+        second_best_similarity: Optional[float] = None
 
         with self._lock:
             prototypes = {prototype.name: prototype for prototype in self._prototypes}
@@ -100,10 +116,13 @@ class FaceRecognitionService:
             if not sample_similarities:
                 continue
 
-            top_k = sample_similarities[: min(3, len(sample_similarities))]
+            top_k = sample_similarities[: min(RECOGNITION_TOP_K_SAMPLES, len(sample_similarities))]
             similarity = float(np.mean(top_k))
             best_single_similarity = top_k[0]
-            similarity = 0.65 * best_single_similarity + 0.35 * similarity
+            similarity = (
+                RECOGNITION_BEST_SAMPLE_WEIGHT * best_single_similarity
+                + RECOGNITION_MEAN_SAMPLE_WEIGHT * similarity
+            )
 
             if prototype is not None:
                 prototype_similarity = self._embedder.cosine_similarity(

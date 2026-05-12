@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal, Optional
 
 import numpy as np
 
@@ -30,10 +31,19 @@ class RecognizedFace:
     bounding_box: BoundingBox
     confidence: float
     label: str
-    similarity: float | None
     embedding_ready: bool
-    estimated_distance_m: float | None = None
+    similarity: Optional[float] = None
+    estimated_distance_m: Optional[float] = None
     is_tracking_target: bool = False
+    head_mesh_ready: bool = False
+    head_pose_ready: bool = False
+    head_yaw_deg: Optional[float] = None
+    head_pitch_deg: Optional[float] = None
+    head_pose_failure_reason: Optional[str] = None
+    head_pose_debug: Optional[str] = None
+    tracking_anchor_y_px: Optional[float] = None
+    tracking_anchor_source: Optional[Literal["mesh", "bbox"]] = None
+    head_mesh_points: tuple[tuple[int, int], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -46,13 +56,15 @@ class FrameAnalysis:
 @dataclass(frozen=True)
 class ApiStatus:
     connected: bool
-    battery: int | None
     stream_enabled: bool
     flying: bool
     known_identities: int
     visible_faces: int
+    battery: Optional[int] = None
     tracking_enabled: bool = False
-    tracking_target_name: str | None = None
+    tracking_target_name: Optional[str] = None
     tracking_target_visible: bool = False
-    tracking_target_distance_m: float | None = None
-    api_url: str | None = None
+    tracking_target_distance_m: Optional[float] = None
+    tracking_search_active: bool = False
+    tracking_search_direction: Optional[Literal["left", "right"]] = None
+    api_url: Optional[str] = None

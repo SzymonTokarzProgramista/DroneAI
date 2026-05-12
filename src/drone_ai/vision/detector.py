@@ -1,13 +1,38 @@
-"""Face detector with MediaPipe-first strategy and OpenCV fallback."""
+"""Face detector with MediaPipe-first strategy and OpenCV profile fallback."""
 
 from __future__ import annotations
 
 import importlib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 
+from drone_ai.constants.vision import (
+    DETECTOR_DEFAULT_MIN_CONFIDENCE,
+    DETECTOR_DEFAULT_NMS_THRESHOLD,
+    DETECTOR_FALLBACK_MIN_CONFIDENCE,
+    DETECTOR_RECOVERY_CONFIDENCE_DELTA,
+    HAAR_FRONTAL_CONFIDENCE,
+    HAAR_FRONTAL_MIN_NEIGHBORS,
+    HAAR_FRONTAL_MIN_SIZE,
+    HAAR_FRONTAL_SCALE_FACTOR,
+    HAAR_PROFILE_CONFIDENCE,
+    HAAR_PROFILE_MIN_NEIGHBORS,
+    HAAR_PROFILE_MIN_SIZE,
+    HAAR_PROFILE_SCALE_FACTOR,
+    MEDIAPIPE_DETECTOR_CONFIDENCE_CAP,
+    MEDIAPIPE_FULL_RANGE_MODEL_SELECTION,
+    MEDIAPIPE_SHORT_RANGE_MODEL_SELECTION,
+    NMS_MIN_CANDIDATES,
+    RECOVERY_FRONTAL_MAX_ASPECT_RATIO,
+    RECOVERY_FRONTAL_MIN_ASPECT_RATIO,
+    RECOVERY_MIN_FACE_AREA_PX,
+    RECOVERY_MIN_FACE_SIZE_PX,
+    RECOVERY_PROFILE_MAX_ASPECT_RATIO,
+    RECOVERY_PROFILE_MIN_ASPECT_RATIO,
+)
 from drone_ai.vision.schemas import BoundingBox, FaceDetection
 
 try:
@@ -16,20 +41,35 @@ except ImportError:
     mp = None
 
 
+@dataclass(frozen=True)
+class _DetectorBackend:
+    name: str
+    detector: Any
+
+
 class MediaPipeFaceDetector:
-    """Face detector backed by MediaPipe when available, with OpenCV fallback."""
+    """Face detector backed by multiple detectors with cautious recovery mode."""
 
     def __init__(
         self,
         *,
-        min_detection_confidence: float = 0.8,
-        detector_model_path: Path | None = None,
-        nms_threshold: float = 0.35,
+        min_detection_confidence: float = DETECTOR_DEFAULT_MIN_CONFIDENCE,
+        recovery_detection_confidence: Optional[float] = None,
+        detector_model_path: Optional[Path] = None,
+        nms_threshold: float = DETECTOR_DEFAULT_NMS_THRESHOLD,
     ) -> None:
-        self._backend = "unknown"
         self._min_detection_confidence = min_detection_confidence
+        self._recovery_detection_confidence = min(
+            min_detection_confidence,
+            recovery_detection_confidence
+            if recovery_detection_confidence is not None
+            else max(
+                DETECTOR_FALLBACK_MIN_CONFIDENCE,
+                min_detection_confidence - DETECTOR_RECOVERY_CONFIDENCE_DELTA,
+            ),
+        )
         self._nms_threshold = nms_threshold
-        self._detector = self._create_detector(
+        self._detectors = self._create_detectors(
             min_detection_confidence=min_detection_confidence,
             detector_model_path=detector_model_path,
         )
@@ -37,12 +77,138 @@ class MediaPipeFaceDetector:
     def detect(self, frame_bgr: Any) -> list[FaceDetection]:
         frame_height, frame_width = frame_bgr.shape[:2]
         rgb_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        grayscale = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
 
-        if self._backend == "solutions":
-            result = self._detector.process(rgb_frame)
+        primary_detections = self._collect_stage(
+            {"solutions_short", "solutions_full", "tasks"},
+            rgb_frame=rgb_frame,
+            grayscale=grayscale,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        filtered_primary = self._filter_detections(primary_detections, allow_recovery=False)
+        if filtered_primary:
+            return filtered_primary
+
+        frontal_detections = self._collect_stage(
+            {"haar_frontal"},
+            rgb_frame=rgb_frame,
+            grayscale=grayscale,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        filtered_frontal = self._filter_detections(frontal_detections, allow_recovery=True)
+        if filtered_frontal:
+            return filtered_frontal
+
+        profile_detections = self._collect_stage(
+            {"haar_profile"},
+            rgb_frame=rgb_frame,
+            grayscale=grayscale,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        return self._filter_detections(profile_detections, allow_recovery=True, profile_mode=True)
+
+    def close(self) -> None:
+        for backend in self._detectors:
+            close = getattr(backend.detector, "close", None)
+            if callable(close):
+                close()
+
+    def _collect_stage(
+        self,
+        backend_names: set[str],
+        *,
+        rgb_frame: Any,
+        grayscale: Any,
+        frame_width: int,
+        frame_height: int,
+    ) -> list[FaceDetection]:
+        detections: list[FaceDetection] = []
+        for backend in self._detectors:
+            if backend.name not in backend_names:
+                continue
+            try:
+                detections.extend(
+                    self._detect_with_backend(
+                        backend,
+                        rgb_frame=rgb_frame,
+                        grayscale=grayscale,
+                        frame_width=frame_width,
+                        frame_height=frame_height,
+                    )
+                )
+            except Exception:
+                continue
+        return detections
+
+    def _create_detectors(
+        self,
+        *,
+        min_detection_confidence: float,
+        detector_model_path: Optional[Path],
+    ) -> list[_DetectorBackend]:
+        detectors: list[_DetectorBackend] = []
+
+        if mp is not None:
+            solutions_module = self._load_solutions_module()
+            if solutions_module is not None:
+                for model_selection, name in (
+                    (MEDIAPIPE_SHORT_RANGE_MODEL_SELECTION, "solutions_short"),
+                    (MEDIAPIPE_FULL_RANGE_MODEL_SELECTION, "solutions_full"),
+                ):
+                    try:
+                        detector = solutions_module.FaceDetection(
+                            model_selection=model_selection,
+                            min_detection_confidence=min(
+                                min_detection_confidence,
+                                MEDIAPIPE_DETECTOR_CONFIDENCE_CAP,
+                            ),
+                        )
+                        detectors.append(_DetectorBackend(name=name, detector=detector))
+                    except Exception:
+                        continue
+
+            tasks_detector = self._load_tasks_detector(
+                min_detection_confidence=min(
+                    min_detection_confidence,
+                    MEDIAPIPE_DETECTOR_CONFIDENCE_CAP,
+                ),
+                detector_model_path=detector_model_path,
+            )
+            if tasks_detector is not None:
+                detectors.append(_DetectorBackend(name="tasks", detector=tasks_detector))
+
+        frontal_detector = self._load_haar_detector("haarcascade_frontalface_default.xml")
+        if frontal_detector is not None:
+            detectors.append(_DetectorBackend(name="haar_frontal", detector=frontal_detector))
+
+        profile_detector = self._load_haar_detector("haarcascade_profileface.xml")
+        if profile_detector is not None:
+            detectors.append(_DetectorBackend(name="haar_profile", detector=profile_detector))
+
+        if detectors:
+            return detectors
+
+        raise RuntimeError(
+            "No supported face detector backend is available. "
+            "Tried MediaPipe solutions, MediaPipe tasks, and OpenCV Haar cascades."
+        )
+
+    def _detect_with_backend(
+        self,
+        backend: _DetectorBackend,
+        *,
+        rgb_frame: Any,
+        grayscale: Any,
+        frame_width: int,
+        frame_height: int,
+    ) -> list[FaceDetection]:
+        if backend.name.startswith("solutions"):
+            result = backend.detector.process(rgb_frame)
             if not result.detections:
                 return []
-
             detections: list[FaceDetection] = []
             for detection in result.detections:
                 rel_box = detection.location_data.relative_bounding_box
@@ -56,11 +222,11 @@ class MediaPipeFaceDetector:
                         confidence=float(detection.score[0]) if detection.score else 0.0,
                     )
                 )
-            return self._filter_detections(detections)
+            return detections
 
-        if self._backend == "tasks":
+        if backend.name == "tasks":
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-            result = self._detector.detect(mp_image)
+            result = backend.detector.detect(mp_image)
             if not result.detections:
                 return []
 
@@ -80,72 +246,37 @@ class MediaPipeFaceDetector:
                         confidence=confidence,
                     )
                 )
-            return self._filter_detections(detections)
+            return detections
 
-        if self._backend == "haar":
-            grayscale = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-            faces = self._detector.detectMultiScale(
+        if backend.name == "haar_frontal":
+            faces = backend.detector.detectMultiScale(
                 grayscale,
-                scaleFactor=1.1,
-                minNeighbors=5,
-                minSize=(40, 40),
+                scaleFactor=HAAR_FRONTAL_SCALE_FACTOR,
+                minNeighbors=HAAR_FRONTAL_MIN_NEIGHBORS,
+                minSize=HAAR_FRONTAL_MIN_SIZE,
             )
-            detections = [
+            return [
                 FaceDetection(
-                    bounding_box=BoundingBox(
-                        x=int(x),
-                        y=int(y),
-                        width=int(width),
-                        height=int(height),
-                    ),
-                    confidence=1.0,
+                    bounding_box=BoundingBox(x=int(x), y=int(y), width=int(width), height=int(height)),
+                    confidence=HAAR_FRONTAL_CONFIDENCE,
                 )
                 for (x, y, width, height) in faces
             ]
-            return self._filter_detections(detections)
 
-        raise RuntimeError("Face detector backend was not initialized correctly.")
-
-    def close(self) -> None:
-        close = getattr(self._detector, "close", None)
-        if callable(close):
-            close()
-
-    def _create_detector(
-        self,
-        *,
-        min_detection_confidence: float,
-        detector_model_path: Path | None,
-    ) -> Any:
-        if mp is not None:
-            solutions_module = self._load_solutions_module()
-            if solutions_module is not None:
-                self._backend = "solutions"
-                return solutions_module.FaceDetection(
-                    model_selection=0,
-                    min_detection_confidence=min_detection_confidence,
+        if backend.name == "haar_profile":
+            detections = self._detect_profile_faces(backend.detector, grayscale, frame_width)
+            return [
+                FaceDetection(
+                    bounding_box=box,
+                    confidence=HAAR_PROFILE_CONFIDENCE,
                 )
+                for box in detections
+            ]
 
-            tasks_detector = self._load_tasks_detector(
-                min_detection_confidence=min_detection_confidence,
-                detector_model_path=detector_model_path,
-            )
-            if tasks_detector is not None:
-                self._backend = "tasks"
-                return tasks_detector
-
-        haar_detector = self._load_haar_detector()
-        if haar_detector is not None:
-            self._backend = "haar"
-            return haar_detector
-
-        raise RuntimeError(
-            "No supported face detector backend is available. "
-            "Tried MediaPipe solutions, MediaPipe tasks, and OpenCV Haar cascade."
-        )
+        return []
 
     @staticmethod
-    def _load_solutions_module() -> Any | None:
+    def _load_solutions_module() -> Optional[Any]:
         if mp is None:
             return None
 
@@ -168,8 +299,8 @@ class MediaPipeFaceDetector:
     def _load_tasks_detector(
         *,
         min_detection_confidence: float,
-        detector_model_path: Path | None,
-    ) -> Any | None:
+        detector_model_path: Optional[Path],
+    ) -> Optional[Any]:
         if mp is None:
             return None
 
@@ -220,8 +351,8 @@ class MediaPipeFaceDetector:
         return face_detector_cls.create_from_options(options)
 
     @staticmethod
-    def _load_haar_detector() -> Any | None:
-        cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+    def _load_haar_detector(filename: str) -> Optional[Any]:
+        cascade_path = Path(cv2.data.haarcascades) / filename
         if not cascade_path.exists():
             return None
 
@@ -230,15 +361,69 @@ class MediaPipeFaceDetector:
             return None
         return detector
 
-    def _filter_detections(self, detections: list[FaceDetection]) -> list[FaceDetection]:
-        filtered = [
+    @staticmethod
+    def _detect_profile_faces(detector: Any, grayscale: Any, frame_width: int) -> list[BoundingBox]:
+        detections: list[BoundingBox] = []
+        faces = detector.detectMultiScale(
+            grayscale,
+            scaleFactor=HAAR_PROFILE_SCALE_FACTOR,
+            minNeighbors=HAAR_PROFILE_MIN_NEIGHBORS,
+            minSize=HAAR_PROFILE_MIN_SIZE,
+        )
+        detections.extend(
+            BoundingBox(x=int(x), y=int(y), width=int(width), height=int(height))
+            for (x, y, width, height) in faces
+        )
+
+        flipped = cv2.flip(grayscale, 1)
+        mirrored_faces = detector.detectMultiScale(
+            flipped,
+            scaleFactor=HAAR_PROFILE_SCALE_FACTOR,
+            minNeighbors=HAAR_PROFILE_MIN_NEIGHBORS,
+            minSize=HAAR_PROFILE_MIN_SIZE,
+        )
+        detections.extend(
+            MediaPipeFaceDetector._mirror_bounding_box(
+                BoundingBox(x=int(x), y=int(y), width=int(width), height=int(height)),
+                frame_width,
+            )
+            for (x, y, width, height) in mirrored_faces
+        )
+        return detections
+
+    @staticmethod
+    def _mirror_bounding_box(box: BoundingBox, frame_width: int) -> BoundingBox:
+        mirrored_x = frame_width - (box.x + box.width)
+        return BoundingBox(x=int(mirrored_x), y=box.y, width=box.width, height=box.height)
+
+    def _filter_detections(
+        self,
+        detections: list[FaceDetection],
+        *,
+        allow_recovery: bool,
+        profile_mode: bool = False,
+    ) -> list[FaceDetection]:
+        valid = [
             detection
             for detection in detections
-            if detection.confidence >= self._min_detection_confidence
-            and detection.bounding_box.width > 0
-            and detection.bounding_box.height > 0
+            if detection.bounding_box.width > 0 and detection.bounding_box.height > 0
         ]
-        if len(filtered) < 2:
+        if not valid:
+            return []
+
+        filtered = [
+            detection
+            for detection in valid
+            if detection.confidence >= self._min_detection_confidence
+        ]
+        if not filtered and allow_recovery:
+            filtered = [
+                detection
+                for detection in valid
+                if detection.confidence >= self._recovery_detection_confidence
+                and self._passes_recovery_geometry(detection.bounding_box, profile_mode=profile_mode)
+            ]
+        if len(filtered) < NMS_MIN_CANDIDATES:
             return filtered
 
         filtered.sort(
@@ -256,6 +441,19 @@ class MediaPipeFaceDetector:
             selected.append(candidate)
 
         return selected
+
+    @staticmethod
+    def _passes_recovery_geometry(box: BoundingBox, *, profile_mode: bool) -> bool:
+        if (
+            box.width < RECOVERY_MIN_FACE_SIZE_PX
+            or box.height < RECOVERY_MIN_FACE_SIZE_PX
+            or box.area < RECOVERY_MIN_FACE_AREA_PX
+        ):
+            return False
+        aspect_ratio = box.width / float(box.height)
+        if profile_mode:
+            return RECOVERY_PROFILE_MIN_ASPECT_RATIO <= aspect_ratio <= RECOVERY_PROFILE_MAX_ASPECT_RATIO
+        return RECOVERY_FRONTAL_MIN_ASPECT_RATIO <= aspect_ratio <= RECOVERY_FRONTAL_MAX_ASPECT_RATIO
 
     @staticmethod
     def _iou(left: BoundingBox, right: BoundingBox) -> float:

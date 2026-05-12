@@ -5,9 +5,15 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Optional
 
 from drone_ai.application import DroneApplication
 from drone_ai.config import AppConfig
+from drone_ai.constants.runtime import (
+    CLI_IDLE_SLEEP_SECONDS,
+    DEFAULT_API_HOST,
+    DEFAULT_API_PORT,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
@@ -16,8 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="DroneAI application with local Tello preview, MediaPipe detection, and face recognition API."
     )
-    parser.add_argument("--host", default="127.0.0.1", help="API bind host.")
-    parser.add_argument("--port", type=int, default=8000, help="API bind port.")
+    parser.add_argument("--host", default=DEFAULT_API_HOST, help="API bind host.")
+    parser.add_argument("--port", type=int, default=DEFAULT_API_PORT, help="API bind port.")
     parser.add_argument(
         "--skip-preview",
         action="store_true",
@@ -29,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    application: DroneApplication | None = None
+    application: Optional[DroneApplication] = None
 
     try:
         application = DroneApplication(AppConfig.from_env(ROOT_DIR))
@@ -44,7 +50,7 @@ def main() -> int:
         if args.skip_preview:
             print("Preview disabled. Press Ctrl+C to stop the app.")
             while True:
-                time.sleep(1)
+                time.sleep(CLI_IDLE_SLEEP_SECONDS)
 
         return application.preview_loop()
     except KeyboardInterrupt:

@@ -34,8 +34,8 @@ class FacePipeline:
             faces=faces,
         )
 
-    def render(self, frame_bgr: np.ndarray, faces: list) -> np.ndarray:
-        return self._renderer.render(frame_bgr, faces)
+    def render(self, frame_bgr: np.ndarray, faces: list, *, show_head_mesh: bool = False) -> np.ndarray:
+        return self._renderer.render(frame_bgr, faces, show_head_mesh=show_head_mesh)
 
     @staticmethod
     def choose_face(detections: list[FaceDetection]) -> FaceDetection:

@@ -63,11 +63,20 @@ class SQLiteFaceRepository:
             )
 
     def add_embedding(self, name: str, embedding: np.ndarray) -> IdentitySummary:
+        return self.add_embeddings(name, [embedding])
+
+    def add_embeddings(self, name: str, embeddings: list[np.ndarray]) -> IdentitySummary:
         normalized_name = name.strip()
         if not normalized_name:
             raise ValueError("Identity name cannot be empty.")
 
-        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        vectors = [
+            np.asarray(embedding, dtype=np.float32).reshape(-1)
+            for embedding in embeddings
+        ]
+        if not vectors:
+            raise ValueError("At least one face embedding is required.")
+
         created_at = datetime.now(timezone.utc).isoformat()
 
         with self._connect() as connection:
@@ -88,12 +97,15 @@ class SQLiteFaceRepository:
             if row is None:
                 raise RuntimeError("Failed to load identity after insert.")
 
-            connection.execute(
+            connection.executemany(
                 """
                 INSERT INTO face_embeddings (identity_id, embedding, dimension, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (row["id"], vector.tobytes(), vector.size, created_at),
+                [
+                    (row["id"], vector.tobytes(), vector.size, created_at)
+                    for vector in vectors
+                ],
             )
 
         return self.get_identity_summary(normalized_name)

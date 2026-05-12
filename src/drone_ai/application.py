@@ -5,13 +5,26 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from drone_ai.config import AppConfig
+from drone_ai.constants.runtime import (
+    API_START_POLL_INTERVAL_SECONDS,
+    API_START_TIMEOUT_SECONDS,
+    API_THREAD_JOIN_TIMEOUT_SECONDS,
+    PROCESSING_ERROR_SLEEP_SECONDS,
+    PROCESSING_THREAD_JOIN_TIMEOUT_SECONDS,
+    REGISTRATION_FRAME_WAIT_SECONDS,
+    REGISTRATION_MIN_FACE_AREA_PX,
+    REGISTRATION_SAMPLE_INTERVAL_SECONDS,
+    REGISTRATION_SERIES_SAMPLE_COUNT,
+    REGISTRATION_SERIES_TIMEOUT_SECONDS,
+)
 from drone_ai.storage.face_repository import IdentitySummary, SQLiteFaceRepository
 from drone_ai.tello_controller import TelloController, TelloStatus
 from drone_ai.tracking.face_tracker import FaceTracker
 from drone_ai.vision.detector import MediaPipeFaceDetector
+from drone_ai.vision.head_pose import MediaPipeHeadPoseEstimator
 from drone_ai.vision.embedder import SFaceEmbedder
 from drone_ai.vision.overlay import FaceOverlayRenderer
 from drone_ai.vision.pipeline import FacePipeline
@@ -55,25 +68,34 @@ class DroneApplication:
         self._pipeline = FacePipeline(
             MediaPipeFaceDetector(
                 min_detection_confidence=config.min_detection_confidence,
+                recovery_detection_confidence=config.recovery_detection_confidence,
                 detector_model_path=config.detector_model_path,
                 nms_threshold=config.detection_nms_threshold,
             ),
             self._recognizer,
             FaceOverlayRenderer(),
         )
-        self._latest_analysis: FrameAnalysis | None = None
+        self._head_pose = MediaPipeHeadPoseEstimator(
+            enabled=config.tracking_head_pose_enabled,
+            min_confidence=config.tracking_head_pose_min_confidence,
+            model_path=config.face_landmarker_model_path,
+        )
+        self._latest_analysis: Optional[FrameAnalysis] = None
         self._latest_detections: list[FaceDetection] = []
         self._latest_frame_id = 0
         self._tracking_enabled = False
         self._tracking_target_visible = False
-        self._tracking_target_distance_m: float | None = None
+        self._tracking_target_distance_m: Optional[float] = None
+        self._tracking_search_active = False
+        self._tracking_search_direction: Optional[str] = None
+        self._show_head_mesh = False
         self._frame_lock = threading.RLock()
         self._stop_event = threading.Event()
-        self._processing_thread: threading.Thread | None = None
-        self._api_server: Any | None = None
-        self._api_thread: threading.Thread | None = None
-        self._api_url: str | None = None
-        self._gui: DroneAIGUI | None = None
+        self._processing_thread: Optional[threading.Thread] = None
+        self._api_server: Optional[Any] = None
+        self._api_thread: Optional[threading.Thread] = None
+        self._api_url: Optional[str] = None
+        self._gui: Optional[DroneAIGUI] = None
 
     def connect(self, *, enable_stream: bool = True) -> TelloStatus:
         status = self._controller.connect(enable_stream=enable_stream)
@@ -91,9 +113,11 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m = None
+        self._tracking_search_active = False
+        self._tracking_search_direction = None
         self._stop_event.set()
         if self._processing_thread is not None:
-            self._processing_thread.join(timeout=5)
+            self._processing_thread.join(timeout=PROCESSING_THREAD_JOIN_TIMEOUT_SECONDS)
             self._processing_thread = None
         self._controller.disconnect()
 
@@ -104,6 +128,8 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m = None
+        self._tracking_search_active = False
+        self._tracking_search_direction = None
         return self._controller.land()
 
     def enable_tracking(self) -> None:
@@ -113,6 +139,8 @@ class DroneApplication:
         self._tracking_enabled = False
         self._tracking_target_visible = False
         self._tracking_target_distance_m = None
+        self._tracking_search_active = False
+        self._tracking_search_direction = None
         self._controller.stop_motion()
 
     def start_api(self, host: str, port: int) -> None:
@@ -134,14 +162,14 @@ class DroneApplication:
         )
         self._api_thread.start()
 
-        deadline = time.time() + 5
+        deadline = time.time() + API_START_TIMEOUT_SECONDS
         while time.time() < deadline:
             if self._api_server.started:
                 self._api_url = f"http://{host}:{port}"
                 return
             if not self._api_thread.is_alive():
                 break
-            time.sleep(0.05)
+            time.sleep(API_START_POLL_INTERVAL_SECONDS)
 
         raise RuntimeError("API server failed to start.")
 
@@ -151,7 +179,7 @@ class DroneApplication:
 
         self._api_server.should_exit = True
         if self._api_thread is not None:
-            self._api_thread.join(timeout=5)
+            self._api_thread.join(timeout=API_THREAD_JOIN_TIMEOUT_SECONDS)
         self._api_server = None
         self._api_thread = None
         self._api_url = None
@@ -172,6 +200,8 @@ class DroneApplication:
             tracking_target_name=self._tracker.target_name,
             tracking_target_visible=self._tracking_target_visible,
             tracking_target_distance_m=self._tracking_target_distance_m,
+            tracking_search_active=self._tracking_search_active,
+            tracking_search_direction=self._tracking_search_direction,
             api_url=self._api_url,
         )
 
@@ -192,13 +222,13 @@ class DroneApplication:
         self,
         name: str,
         *,
-        sample_count: int = 5,
-        timeout_seconds: float = 6.0,
+        sample_count: int = REGISTRATION_SERIES_SAMPLE_COUNT,
+        timeout_seconds: float = REGISTRATION_SERIES_TIMEOUT_SECONDS,
     ) -> IdentitySummary:
         deadline = time.time() + timeout_seconds
         last_frame_id = -1
         captured = 0
-        latest_summary: IdentitySummary | None = None
+        latest_summary: Optional[IdentitySummary] = None
 
         while captured < sample_count and time.time() < deadline:
             with self._frame_lock:
@@ -212,19 +242,24 @@ class DroneApplication:
                     frame = None
 
             if analysis is None or frame is None or not detections or frame_id == last_frame_id:
-                time.sleep(0.08)
+                time.sleep(REGISTRATION_FRAME_WAIT_SECONDS)
                 continue
 
             detection = FacePipeline.choose_face(detections)
-            if detection.bounding_box.area < 10_000:
+            if detection.bounding_box.area < REGISTRATION_MIN_FACE_AREA_PX:
                 last_frame_id = frame_id
-                time.sleep(0.08)
+                time.sleep(REGISTRATION_FRAME_WAIT_SECONDS)
                 continue
 
-            latest_summary = self._recognizer.register_face(name, frame, detection)
+            latest_summary = self._recognizer.register_face(
+                name,
+                frame,
+                detection,
+                augment_from_single_frame=False,
+            )
             captured += 1
             last_frame_id = frame_id
-            time.sleep(0.12)
+            time.sleep(REGISTRATION_SAMPLE_INTERVAL_SECONDS)
 
         if latest_summary is None:
             raise RuntimeError("Failed to capture a usable face series from the current preview.")
@@ -241,6 +276,13 @@ class DroneApplication:
             if self._latest_analysis is None:
                 return None
             return self._latest_analysis.annotated_frame.copy()
+
+    def head_mesh_enabled(self) -> bool:
+        return self._show_head_mesh
+
+    def toggle_head_mesh(self) -> bool:
+        self._show_head_mesh = not self._show_head_mesh
+        return self._show_head_mesh
 
     def latest_faces(self) -> list[RecognizedFace]:
         with self._frame_lock:
@@ -268,6 +310,8 @@ class DroneApplication:
             land=self.land,
             enable_tracking=self.enable_tracking,
             disable_tracking=self.disable_tracking,
+            head_mesh_enabled=self.head_mesh_enabled,
+            toggle_head_mesh=self.toggle_head_mesh,
         )
         return self._gui.run()
 
@@ -277,6 +321,7 @@ class DroneApplication:
             self._gui = None
         self.stop_api()
         self.disconnect()
+        self._head_pose.close()
         self._pipeline.close()
 
     def _processing_loop(self) -> None:
@@ -292,7 +337,11 @@ class DroneApplication:
                     )
                     for face in tracked_faces
                 ]
-                annotated_frame = self._pipeline.render(frame, tracked_faces)
+                annotated_frame = self._pipeline.render(
+                    frame,
+                    tracked_faces,
+                    show_head_mesh=self._show_head_mesh,
+                )
                 with self._frame_lock:
                     self._latest_analysis = FrameAnalysis(
                         raw_frame=analysis.raw_frame,
@@ -304,8 +353,10 @@ class DroneApplication:
             except Exception:
                 self._tracking_target_visible = False
                 self._tracking_target_distance_m = None
+                self._tracking_search_active = False
+                self._tracking_search_direction = None
                 self._controller.stop_motion()
-                time.sleep(0.05)
+                time.sleep(PROCESSING_ERROR_SLEEP_SECONDS)
                 continue
 
     def _apply_tracking(
@@ -314,18 +365,109 @@ class DroneApplication:
         faces: list[RecognizedFace],
     ) -> list[RecognizedFace]:
         target_face = self._tracker.select_target(faces)
+        mesh_preview_face = target_face
+        if mesh_preview_face is None and self._show_head_mesh and faces:
+            mesh_preview_face = max(faces, key=lambda face: face.bounding_box.area)
+
+        head_pose = None
+        if mesh_preview_face is not None:
+            head_pose = self._head_pose.estimate(frame_bgr, mesh_preview_face.bounding_box)
+
+        enriched_target_face = target_face
+        fallback_tracking_anchor_y = None
+        fallback_tracking_anchor_source = None
+        if target_face is not None:
+            fallback_tracking_anchor_y = self._bbox_tracking_anchor_y(target_face.bounding_box)
+            fallback_tracking_anchor_source = "bbox"
+        if (
+            target_face is not None
+            and mesh_preview_face is target_face
+            and head_pose is not None
+        ):
+            tracking_anchor_y = head_pose.tracking_anchor_y_px
+            tracking_anchor_source = (
+                "mesh" if tracking_anchor_y is not None and head_pose.mesh_ready else fallback_tracking_anchor_source
+            )
+            if tracking_anchor_y is None:
+                tracking_anchor_y = fallback_tracking_anchor_y
+            enriched_target_face = RecognizedFace(
+                bounding_box=target_face.bounding_box,
+                confidence=target_face.confidence,
+                label=target_face.label,
+                similarity=target_face.similarity,
+                embedding_ready=target_face.embedding_ready,
+                estimated_distance_m=target_face.estimated_distance_m,
+                is_tracking_target=target_face.is_tracking_target,
+                head_mesh_ready=head_pose.mesh_ready,
+                head_pose_ready=head_pose.pose_ready,
+                head_yaw_deg=head_pose.yaw_deg,
+                head_pitch_deg=head_pose.pitch_deg,
+                head_pose_failure_reason=head_pose.failure_reason,
+                head_pose_debug=head_pose.debug_message,
+                tracking_anchor_y_px=tracking_anchor_y,
+                tracking_anchor_source=tracking_anchor_source,
+                head_mesh_points=head_pose.mesh_points,
+            )
+        elif target_face is not None:
+            enriched_target_face = RecognizedFace(
+                bounding_box=target_face.bounding_box,
+                confidence=target_face.confidence,
+                label=target_face.label,
+                similarity=target_face.similarity,
+                embedding_ready=target_face.embedding_ready,
+                estimated_distance_m=target_face.estimated_distance_m,
+                is_tracking_target=target_face.is_tracking_target,
+                head_mesh_ready=target_face.head_mesh_ready,
+                head_pose_ready=target_face.head_pose_ready,
+                head_yaw_deg=target_face.head_yaw_deg,
+                head_pitch_deg=target_face.head_pitch_deg,
+                head_pose_failure_reason=target_face.head_pose_failure_reason,
+                head_pose_debug=target_face.head_pose_debug,
+                tracking_anchor_y_px=fallback_tracking_anchor_y,
+                tracking_anchor_source=fallback_tracking_anchor_source,
+                head_mesh_points=target_face.head_mesh_points,
+            )
+
         command = self._tracker.build_command_full(
             frame_bgr.shape[1],
             frame_bgr.shape[0],
-            target_face,
+            enriched_target_face,
         )
 
         tracked_faces: list[RecognizedFace] = []
         for face in faces:
             is_target = target_face is not None and face is target_face
+            has_mesh_preview = mesh_preview_face is not None and face is mesh_preview_face
             estimated_distance_m = None
+            head_mesh_ready = False
+            head_pose_ready = False
+            head_yaw_deg = None
+            head_pitch_deg = None
+            head_pose_failure_reason = None
+            head_pose_debug = None
+            tracking_anchor_y_px = None
+            tracking_anchor_source = None
+            head_mesh_points: tuple[tuple[int, int], ...] = ()
             if is_target:
                 estimated_distance_m = command.estimated_distance_m
+                tracking_anchor_y_px = (
+                    enriched_target_face.tracking_anchor_y_px
+                    if enriched_target_face is not None
+                    else None
+                )
+                tracking_anchor_source = (
+                    enriched_target_face.tracking_anchor_source
+                    if enriched_target_face is not None
+                    else None
+                )
+            if has_mesh_preview and head_pose is not None:
+                head_mesh_ready = head_pose.mesh_ready
+                head_pose_ready = head_pose.pose_ready
+                head_yaw_deg = head_pose.yaw_deg
+                head_pitch_deg = head_pose.pitch_deg
+                head_pose_failure_reason = head_pose.failure_reason
+                head_pose_debug = head_pose.debug_message
+                head_mesh_points = head_pose.mesh_points
             tracked_faces.append(
                 RecognizedFace(
                     bounding_box=face.bounding_box,
@@ -335,15 +477,26 @@ class DroneApplication:
                     embedding_ready=face.embedding_ready,
                     estimated_distance_m=estimated_distance_m,
                     is_tracking_target=is_target,
+                    head_mesh_ready=head_mesh_ready,
+                    head_pose_ready=head_pose_ready,
+                    head_yaw_deg=head_yaw_deg,
+                    head_pitch_deg=head_pitch_deg,
+                    head_pose_failure_reason=head_pose_failure_reason,
+                    head_pose_debug=head_pose_debug,
+                    tracking_anchor_y_px=tracking_anchor_y_px,
+                    tracking_anchor_source=tracking_anchor_source,
+                    head_mesh_points=head_mesh_points,
                 )
             )
 
         self._tracking_target_visible = command.target_visible
         self._tracking_target_distance_m = command.estimated_distance_m
+        self._tracking_search_active = command.search_active
+        self._tracking_search_direction = command.search_direction
 
         if self._tracking_enabled:
             self._controller.send_rc_control(
-                0,
+                command.left_right_velocity,
                 command.forward_backward_velocity,
                 command.up_down_velocity,
                 command.yaw_velocity,
@@ -352,6 +505,11 @@ class DroneApplication:
             self._controller.stop_motion()
 
         return tracked_faces
+
+    def _bbox_tracking_anchor_y(self, bounding_box: Any) -> float:
+        return bounding_box.y + (
+            bounding_box.height * self._config.tracking_bbox_anchor_y_ratio
+        )
 
 
 def create_api(application: DroneApplication) -> Any:
